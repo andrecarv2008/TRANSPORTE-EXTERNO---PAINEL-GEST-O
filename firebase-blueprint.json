@@ -1,0 +1,63 @@
+{
+  "entities": {
+    "viagem": {
+      "title": "Viagem",
+      "description": "Faturamento e despesas de uma viagem ou conhecimento de frete",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "ID único da viagem ou conhecimento de transporte" },
+        "tipoVeiculo": { "type": "string", "description": "Tipo ou modelo de veículo" },
+        "rota": { "type": "string", "description": "Rota percorrida" },
+        "placa": { "type": "string", "description": "Placa do veículo" },
+        "motorista": { "type": "string", "description": "Nome do motorista" },
+        "kmRodado": { "type": "number", "description": "Quilometragem percorrida" },
+        "valorCarga": { "type": "number", "description": "Valor líquido do faturamento do frete" },
+        "qtdDias": { "type": "number", "description": "Quantidade de dias de viagem" },
+        "mediaDias": { "type": "number", "description": "Média de dias de trânsito" },
+        "metaViagem": { "type": "number", "description": "Valor de meta" },
+        "supervisao": { "type": "string", "description": "Supervisor ou filial relacionada" },
+        "qtd": { "type": "number", "description": "Quantidade (fator multiplicador)" },
+        "filial": { "type": "string", "description": "Filial operante do veículo" },
+        "ano": { "type": "number", "description": "Ano fiscal" },
+        "mes": { "type": "string", "description": "Nome do mês" },
+        "conhecimento": { "type": "string", "description": "Número do conhecimento de frete para conciliação" },
+        "modeloVeiculo": { "type": "string", "description": "Modelo detalhado" },
+        "metaKm": { "type": "number" },
+        "ganhoPerdaKm": { "type": "number" },
+        "valorAbastecido": { "type": "number" },
+        "litros": { "type": "number" },
+        "valorLitro": { "type": "number" },
+        "metaKmL": { "type": "number" },
+        "kmLRealizado": { "type": "number" },
+        "ganhoPerdaLitro": { "type": "number" },
+        "ganhoPerdaRS": { "type": "number" },
+        "statusMeta": { "type": "string" },
+        "despesaOficina": { "type": "number" }
+      },
+      "required": ["id", "placa", "motorista", "valorCarga"]
+    },
+    "metadataLastUpdate": {
+      "title": "MetadataLastUpdate",
+      "description": "Metadados sobre a última importação de planilhas Excel realizada pelo administrador",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "lastUploadedAt": { "type": "string", "description": "Data e hora formatada da última importação" },
+        "uploaderName": { "type": "string", "description": "Usuário que fez a importação" },
+        "fileName": { "type": "string", "description": "Nome da planilha importada" },
+        "recordCount": { "type": "number", "description": "Quantidade de registros totais importados" }
+      },
+      "required": ["id", "lastUploadedAt", "uploaderName", "fileName"]
+    }
+  },
+  "firestore": {
+    "/viagens/{viagemId}": {
+      "schema": "viagem",
+      "description": "Coleção de registros de viagens consolidados"
+    },
+    "/metadata/{metadataId}": {
+      "schema": "metadataLastUpdate",
+      "description": "Coleção de metadados de atualização geral do sistema"
+    }
+  }
+}

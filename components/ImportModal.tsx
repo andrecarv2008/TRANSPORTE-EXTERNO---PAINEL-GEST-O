@@ -277,6 +277,7 @@ export default function ImportModal({ isOpen, onClose, onImport }: ImportModalPr
 
   const processFileContents = (file: File) => {
     setSelectedFile(file);
+    localStorage.setItem('last_uploaded_filename', file.name);
     setIsProcessing(true);
     setProgressPercent(10);
 

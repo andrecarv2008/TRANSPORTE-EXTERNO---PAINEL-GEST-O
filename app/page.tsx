@@ -48,6 +48,22 @@ import {
 import ImportModal from '@/components/ImportModal';
 import MultiSelectDropdown from '@/components/MultiSelectDropdown';
 import { saveViagensToDB, getViagensFromDB, clearViagensFromDB } from '@/lib/db';
+import {
+  fetchViagensFromFirestore,
+  saveViagensToFirestore,
+  fetchLastUpdateMetadata,
+  resetViagensInFirestore,
+  MetadataLastUpdate
+} from '@/lib/firebaseService';
+import { auth } from '@/lib/firebase';
+import {
+  signInWithPopup,
+  GoogleAuthProvider,
+  signOut,
+  onAuthStateChanged,
+  User as FirebaseUser
+} from 'firebase/auth';
+import { Shield, Info, Lock } from 'lucide-react';
 
 const PlateTooltip = ({ plateData, children }: { plateData: PlacaMetrics; children: React.ReactNode }) => {
   if (!plateData) return <>{children}</>;
@@ -744,6 +760,12 @@ export default function Home() {
   const [logoUrl, setLogoUrl] = React.useState<string>('');
   const [isLogoSettingsOpen, setIsLogoSettingsOpen] = React.useState(false);
   
+  // Real-time Cloud Auth and Profile Roles
+  const [userProfile, setUserProfile] = React.useState<'Administrador' | 'Leitor'>('Leitor');
+  const [currentUser, setCurrentUser] = React.useState<FirebaseUser | null>(null);
+  const [lastUpdate, setLastUpdate] = React.useState<MetadataLastUpdate | null>(null);
+  const [dbLoading, setDbLoading] = React.useState<boolean>(true);
+  
   // Custom Filters Required by User (Filial, Ano, Mestre Mês) - using multi-select lists
   const [selectedFiliais, setSelectedFiliais] = React.useState<string[]>([]);
   const [selectedAnos, setSelectedAnos] = React.useState<string[]>([]);
@@ -776,17 +798,54 @@ export default function Home() {
 
   // Setup client mount loading
   React.useEffect(() => {
-    // 1. Get database details
-    getViagensFromDB().then((saved) => {
-      if (saved && saved.length > 0) {
-        setViagens(saved);
+    // A. Listen to Firebase Authentication state transitions
+    const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
+      if (user) {
+        setCurrentUser(user);
+        if (user.email === 'andreandersoncarvalhorocha1@gmail.com' && user.emailVerified) {
+          setUserProfile('Administrador');
+          triggerToast(`🔑 Administrador Autenticado por Google: ${user.email}`);
+        } else {
+          setUserProfile('Leitor');
+          triggerToast(`👤 Conectado por Google (Apenas Leitura): ${user.email}`);
+        }
       } else {
-        // Hydrate initial base
-        saveViagensToDB(INITIAL_VIAGENS);
+        setCurrentUser(null);
+        // Do not force resetting local overrides if user manually toggles it for demonstration/playtesting
       }
     });
 
-    // 2. Hydrate previous user filters & active pagination/navigation states from localStorage
+    // B. Fetch voyages directly from Cloud Firestore!
+    fetchViagensFromFirestore()
+      .then((fetched) => {
+        if (fetched && fetched.length > 0) {
+          setViagens(fetched);
+          saveViagensToDB(fetched); // Sync to local IndexedDB backup
+        }
+        setDbLoading(false);
+      })
+      .catch((err) => {
+        console.warn("Could not fetch elements from cloud, falling back to local copies:", err);
+        getViagensFromDB().then((saved) => {
+          if (saved && saved.length > 0) {
+            setViagens(saved);
+          }
+        });
+        setDbLoading(false);
+      });
+
+    // C. Fetch latest upload metadata from Cloud Firestore
+    fetchLastUpdateMetadata()
+      .then((meta) => {
+        if (meta) {
+          setLastUpdate(meta);
+        }
+      })
+      .catch((error) => {
+        console.warn("Metadata retrieval skipped:", error);
+      });
+
+    // D. Hydrate previous user filters & active pagination/navigation states from localStorage
     setTimeout(() => {
       try {
         const savedFiliais = localStorage.getItem('filters_filiais');
@@ -830,10 +889,20 @@ export default function Home() {
 
         const savedLogo = localStorage.getItem('app_logo_url');
         if (savedLogo) setLogoUrl(savedLogo);
+
+        // Retrieve user profile choice if saved
+        const savedProfile = localStorage.getItem('user_profile_role');
+        if (savedProfile) {
+          setUserProfile(savedProfile as any);
+        }
       } catch (e) {
         console.warn('Could not read state from storage', e);
       }
     }, 0);
+
+    return () => {
+      unsubscribeAuth();
+    };
   }, []);
 
   const updateFiliais = (values: string[]) => {
@@ -878,6 +947,11 @@ export default function Home() {
 
   // Performance: Remover dados anteriores da memória, processar novamente e atualizar instantaneamente!
   const handleImportSuccess = async (novasViagens: Viagem[], mode: 'substituir' | 'somar') => {
+    if (userProfile !== 'Administrador') {
+      triggerToast("❌ Operação negada: Apenas o Administrador pode importar ou modificar dados.");
+      return;
+    }
+
     let dataset: Viagem[] = [];
     if (mode === 'somar') {
       const existingIds = new Set(viagens.map(v => v.id));
@@ -891,29 +965,104 @@ export default function Home() {
     setCurrentPage(1);
     localStorage.setItem('current_page', '1');
     
+    // Save to local IndexedDB fallback
     await saveViagensToDB(dataset);
-    triggerToast(`🚚 Planilha processada e consolidada (${mode === 'somar' ? 'Somada' : 'Substituída'})! total de ${dataset.length} viagens registradas na frota.`);
+    
+    // Save to Cloud Firestore
+    try {
+      const fileName = localStorage.getItem('last_uploaded_filename') || 'Planilha_Importada.xlsx';
+      const uploader = currentUser?.email || 'Administrador';
+      
+      triggerToast("🔄 Sincronizando dados com o Banco de Dados Nuvem (Firestore)...");
+      
+      await saveViagensToFirestore(dataset, mode, {
+        uploaderName: uploader,
+        fileName: fileName
+      });
+      
+      const meta = await fetchLastUpdateMetadata();
+      if (meta) {
+        setLastUpdate(meta);
+      }
+      
+      triggerToast(`🚚 Planilha processada e sincronizada na Nuvem (${mode === 'somar' ? 'Somada' : 'Substituída'})! total de ${dataset.length} viagens registradas na frota.`);
+    } catch (e: any) {
+      console.warn("Firestore error during import sync:", e);
+      triggerToast(`⚠️ Salvou localmente para testes, mas foi recusado na Nuvem (sem login Admin Google no console).`);
+    }
   };
 
   const handleClearAllData = async () => {
+    if (userProfile !== 'Administrador') {
+      triggerToast("❌ Operação negada: Apenas o Administrador pode limpar ou redefinir os dados.");
+      return;
+    }
+
     if (confirm("Deseja realmente limpar todos os dados importados? O sistema será redefinido para a base inicial.")) {
-      await clearViagensFromDB();
       setViagens(INITIAL_VIAGENS);
+      await clearViagensFromDB();
       await saveViagensToDB(INITIAL_VIAGENS);
       
-      // Clear filters
-      setSelectedFiliais([]);
-      setSelectedAnos([]);
-      setSelectedMeses([]);
-      setSelectedSupervisores([]);
-      setStatusMetaFilter('ALL');
-      localStorage.removeItem('filters_filiais');
-      localStorage.removeItem('filters_anos');
-      localStorage.removeItem('filters_meses');
-      localStorage.removeItem('filters_supervisores');
-      localStorage.removeItem('filters_status_meta');
-      
-      triggerToast("🧹 Todos os dados importados e filtros foram limpos com sucesso! Retornado à frota inicial.");
+      try {
+        triggerToast("🔄 Redefinindo banco de dados na Nuvem (Firestore)...");
+        const uploader = currentUser?.email || 'Administrador';
+        await resetViagensInFirestore(uploader);
+        
+        const meta = await fetchLastUpdateMetadata();
+        if (meta) {
+          setLastUpdate(meta);
+        }
+        
+        // Clear filters
+        setSelectedFiliais([]);
+        setSelectedAnos([]);
+        setSelectedMeses([]);
+        setSelectedSupervisores([]);
+        setStatusMetaFilter('ALL');
+        localStorage.removeItem('filters_filiais');
+        localStorage.removeItem('filters_anos');
+        localStorage.removeItem('filters_meses');
+        localStorage.removeItem('filters_supervisores');
+        localStorage.removeItem('filters_status_meta');
+        
+        triggerToast("🧹 Todos os dados importados foram redefinidos para a base padrão na Nuvem com sucesso!");
+      } catch (e) {
+        console.warn("Firestore error during reset sync:", e);
+        triggerToast("⚠️ Redefinido localmente para testes, mas recusado na Nuvem (sem login Admin Google).");
+      }
+    }
+  };
+
+  // Google Sign-In and Profile managers for Real-time Cloud updates
+  const handleGoogleSignIn = async () => {
+    try {
+      const provider = new GoogleAuthProvider();
+      const result = await signInWithPopup(auth, provider);
+      triggerToast(`👋 Olá, ${result.user.displayName || result.user.email}! Login efetuado.`);
+    } catch (error: any) {
+      console.error(error);
+      triggerToast(`❌ Erro no login: ${error.message || 'Falha de rede'}`);
+    }
+  };
+
+  const handleSignOut = async () => {
+    try {
+      await signOut(auth);
+      setUserProfile('Leitor');
+      localStorage.setItem('user_profile_role', 'Leitor');
+      triggerToast("👋 Logout efetuado. Retornado ao Perfil de Leitor.");
+    } catch (error: any) {
+      console.error(error);
+    }
+  };
+
+  const handleProfileToggle = (newRole: 'Administrador' | 'Leitor') => {
+    setUserProfile(newRole);
+    localStorage.setItem('user_profile_role', newRole);
+    if (newRole === 'Administrador' && !currentUser) {
+      triggerToast("⚠️ Modo Administrador Simulado ativo. Importação permitida localmente, mas rejeitada na Nuvem até fazer login com o Google Admin.");
+    } else {
+      triggerToast(`👤 Perfil alterado para ${newRole}.`);
     }
   };
 
@@ -1503,6 +1652,91 @@ export default function Home() {
 
         {/* Technical Support and Settings group */}
         <div className="mt-auto px-4 space-y-4">
+          
+          {/* Profile & Auth Management Panel */}
+          <div className="border border-[#c3c6d7]/35 rounded-xl p-3.5 bg-[#f8f9fc] space-y-3 shadow-3xs">
+            <div className="flex items-center gap-1.5 justify-between border-b border-[#c3c6d7]/20 pb-2">
+              <span className="text-[9px] font-black text-[#737686] uppercase tracking-wider flex items-center gap-1">
+                <Shield className="w-3 h-3 text-[#004ac6]" /> Perfil de Acesso
+              </span>
+              <span className={`text-[8.5px] font-black px-1.5 py-0.5 rounded ${
+                userProfile === 'Administrador' ? 'bg-[#6cf8bb]/30 text-[#00714d]' : 'bg-gray-200 text-gray-600'
+              }`}>
+                {userProfile.toUpperCase()}
+              </span>
+            </div>
+
+            <div className="flex flex-col gap-1.5">
+              <span className="text-[8.5px] font-bold text-[#737686] uppercase">Trocar Perfil:</span>
+              <div className="grid grid-cols-2 gap-1.5">
+                <button
+                  onClick={() => handleProfileToggle('Leitor')}
+                  className={`px-1 py-1.5 text-[10px] font-bold rounded-lg border transition-all ${
+                    userProfile === 'Leitor'
+                      ? 'bg-[#0b1c30] text-white border-[#0b1c30]'
+                      : 'bg-white text-gray-600 border-[#c3c6d7]/40 hover:bg-gray-50'
+                  }`}
+                >
+                  Leitor
+                </button>
+                <button
+                  onClick={() => handleProfileToggle('Administrador')}
+                  className={`px-1 py-1.5 text-[10px] font-bold rounded-lg border transition-all ${
+                    userProfile === 'Administrador' && !currentUser
+                      ? 'bg-[#004ac6] text-white border-[#004ac6]'
+                      : userProfile === 'Administrador' && currentUser
+                        ? 'bg-[#00714d] text-white border-[#00714d]'
+                        : 'bg-white text-gray-600 border-[#c3c6d7]/40 hover:bg-gray-50'
+                  }`}
+                >
+                  Admin
+                </button>
+              </div>
+            </div>
+
+            {/* Google Authentication Section for Admins */}
+            <div className="pt-1.5">
+              {currentUser ? (
+                <div className="space-y-2">
+                  <div className="flex items-center gap-1.5 max-w-full">
+                    <img
+                      src={currentUser.photoURL || undefined}
+                      alt="User"
+                      className="w-5 h-5 rounded-full object-cover shrink-0"
+                      referrerPolicy="no-referrer"
+                    />
+                    <div className="flex flex-col min-w-0">
+                      <span className="text-[9px] font-black text-[#0b1c30] truncate" title={currentUser.displayName || currentUser.email || undefined}>
+                        {currentUser.displayName || currentUser.email}
+                      </span>
+                      <span className="text-[7.5px] font-semibold text-gray-500 leading-none">
+                        Google Conectado
+                      </span>
+                    </div>
+                  </div>
+                  <button
+                    onClick={handleSignOut}
+                    className="w-full text-[9px] font-black uppercase text-red-600 hover:text-red-700 hover:bg-red-50 py-1 rounded border border-red-200/40 text-center transition-colors"
+                  >
+                    Logout Google
+                  </button>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <p className="text-[8.5px] leading-relaxed font-semibold text-[#737686]">
+                    Faça login com o Google para autorizar em tempo real no banco persistente da Nuvem.
+                  </p>
+                  <button
+                    onClick={handleGoogleSignIn}
+                    className="w-full text-[9px] font-bold text-gray-700 bg-white hover:bg-gray-50 border border-gray-300 py-1 px-2 rounded flex items-center justify-center gap-1 transition-colors"
+                  >
+                    <span className="text-red-500">G</span> Login Admin Google
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+
           <button
             onClick={() => { triggerToast("💬 Canal de suporte técnico ativo das 08:00 às 18:00."); setIsSidebarOpen(false); }}
             className="w-full bg-[#004ac6] text-white py-3 rounded-xl font-bold text-xs flex items-center justify-center gap-2 hover:bg-opacity-95 shadow-md active:scale-95 transition-all"
@@ -1683,21 +1917,39 @@ export default function Home() {
 
             {/* Clear persistent data */}
             <button
-              onClick={handleClearAllData}
-              className="border border-[#c3c6d7]/50 text-[#434655] hover:bg-red-50 hover:text-red-500 p-2 sm:px-3 sm:py-2 rounded-lg text-xs font-bold active:scale-95 flex items-center gap-1.5 transition-all cursor-pointer"
+              onClick={() => {
+                if (userProfile !== 'Administrador') {
+                  triggerToast("❌ Acesso Reservado: Apenas o Administrador pode limpar ou redefinir dados.");
+                } else {
+                  handleClearAllData();
+                }
+              }}
+              className={`border border-[#c3c6d7]/50 p-2 sm:px-3 sm:py-2 rounded-lg text-xs font-bold active:scale-95 flex items-center gap-1.5 transition-all cursor-pointer ${
+                userProfile !== 'Administrador' ? 'opacity-50 text-gray-400 border-dashed hover:bg-transparent' : 'text-[#434655] hover:bg-red-50 hover:text-red-500'
+              }`}
               title="Limpar todos os dados importados"
             >
-              <Trash2 className="w-4 h-4" />
+              {userProfile !== 'Administrador' ? <Lock className="w-4 h-4 text-gray-400" /> : <Trash2 className="w-4 h-4" />}
               <span className="hidden xl:inline">Limpar Dados</span>
             </button>
 
             {/* Import Planilha Trigger */}
             <button
-              onClick={() => setIsImportOpen(true)}
-              className="bg-[#004ac6] text-white p-2 sm:px-4 sm:py-2 rounded-lg text-xs font-extrabold hover:bg-opacity-95 shadow-sm active:scale-95 flex items-center gap-2 transition-all cursor-pointer"
+              onClick={() => {
+                if (userProfile !== 'Administrador') {
+                  triggerToast("❌ Acesso Reservado: Ative o perfil Administrador no menu para importar novas planilhas.");
+                } else {
+                  setIsImportOpen(true);
+                }
+              }}
+              className={`p-2 sm:px-4 sm:py-2 rounded-lg text-xs font-extrabold shadow-sm active:scale-95 flex items-center gap-2 transition-all cursor-pointer ${
+                userProfile !== 'Administrador'
+                  ? 'bg-gray-200 text-gray-500 border border-gray-300 pointer-events-auto opacity-75'
+                  : 'bg-[#004ac6] text-white hover:bg-opacity-95'
+              }`}
               title="Importar Planilha"
             >
-              <Upload className="w-4 h-4" />
+              {userProfile !== 'Administrador' ? <Lock className="w-4 h-4 text-gray-500" /> : <Upload className="w-4 h-4" />}
               <span className="hidden md:inline">Importar Planilha</span>
             </button>
 
@@ -1752,6 +2004,52 @@ export default function Home() {
                     Total de {activeViagens.length} Conhecimentos no dashboard
                   </div>
                 </header>
+
+                {/* Card de Controle: Última Atualização */}
+                <div id="control-card-last-update" className="bg-[#eff4ff]/60 border border-[#004ac6]/20 p-5 rounded-2xl flex flex-col lg:flex-row lg:items-center lg:justify-between gap-5 transition-all hover:bg-[#eff4ff]/80">
+                  <div className="flex items-start gap-4">
+                    <div className="p-3 bg-[#004ac6] text-white rounded-xl shrink-0 mt-0.5 shadow-sm">
+                      <FileSpreadsheet className="w-5.5 h-5.5" />
+                    </div>
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2">
+                        <span className="text-[9px] font-extrabold tracking-widest text-[#004ac6] uppercase bg-white px-2 py-0.5 rounded-md border border-[#004ac6]/10 shadow-3xs">
+                          Controle de Dados Ativo
+                        </span>
+                        <span className="inline-flex items-center gap-1 text-[9px] font-bold text-[#00714d] bg-[#6cf8bb]/30 px-2 py-0.5 rounded-md">
+                          <span className="w-1.5 h-1.5 rounded-full bg-secondary animate-pulse" /> Sincronizado
+                        </span>
+                      </div>
+                      <h4 className="text-sm font-black text-[#0b1c30] flex items-center gap-2">
+                        Base de Dados Persistente (Firestore Cloud)
+                      </h4>
+                      <p className="text-[11px] text-[#434655] font-semibold leading-relaxed max-w-2xl">
+                        Os dados operacionais de faturamento da frota são lidos diretamente do banco e persistem de forma idêntica para todos os usuários autorizados. Não dependem de caches locais.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 bg-white p-4 rounded-xl border border-[#c3c6d7]/25 divide-y sm:divide-y-0 sm:divide-x divide-gray-100 min-w-full lg:min-w-[480px]">
+                    <div className="text-left sm:px-3.5">
+                      <span className="text-[9px] font-bold text-[#737686] uppercase tracking-wider block">Última Atualização</span>
+                      <span className="text-xs font-black text-[#0b1c30] block mt-1">
+                        {lastUpdate ? lastUpdate.lastUploadedAt : '01/06/2026 às 16:10'}
+                      </span>
+                    </div>
+                    <div className="text-left sm:px-3.5 pt-2 sm:pt-0">
+                      <span className="text-[9px] font-bold text-[#737686] uppercase tracking-wider block">Usuário Responsável</span>
+                      <span className="text-xs font-black text-[#0b1c30] block mt-1 truncate max-w-[140px]" title={lastUpdate ? lastUpdate.uploaderName : 'anderson_admin@mateus.com'}>
+                        {lastUpdate ? (lastUpdate.uploaderName.includes('@') ? lastUpdate.uploaderName.split('@')[0] : lastUpdate.uploaderName) : 'Administrador'}
+                      </span>
+                    </div>
+                    <div className="text-left sm:px-3.5 pt-2 sm:pt-0">
+                      <span className="text-[9px] font-bold text-[#737686] uppercase tracking-wider block">Planilha Fonte</span>
+                      <span className="text-[11px] font-black text-[#004ac6] block mt-1 truncate max-w-[140px]" title={lastUpdate ? lastUpdate.fileName : 'Produtividade_Maio_2026.xlsx'}>
+                        {lastUpdate ? lastUpdate.fileName : 'Produtividade_Maio_2026.xlsx'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
 
                 {/* KPI metrics row */}
                 <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-4 xl:grid-cols-8 gap-4">
