@@ -1,0 +1,6 @@
+{
+  "name": "Grupo Mateus - Transp. Externo",
+  "description": "Painel de Gestão de Frota, Produtividade, Monitoramento de Viagens e Relatórios de Performance de Motoristas",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
