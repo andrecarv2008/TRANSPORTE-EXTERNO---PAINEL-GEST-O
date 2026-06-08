@@ -1025,12 +1025,11 @@ export default function Home() {
   const [isLogoSettingsOpen, setIsLogoSettingsOpen] = React.useState(false);
   
   // Real-time Cloud Auth and Profile Roles
-  const [userProfile, setUserProfile] = React.useState<'Administrador' | 'Leitor'>('Leitor');
+  const [userProfile, setUserProfile] = React.useState<'Administrador' | 'Visitante'>('Visitante');
   const [currentUser, setCurrentUser] = React.useState<FirebaseUser | null>(null);
   const [lastUpdate, setLastUpdate] = React.useState<MetadataLastUpdate | null>(null);
   const [importLogs, setImportLogs] = React.useState<ImportLog[]>([]);
   const [dbLoading, setDbLoading] = React.useState<boolean>(true);
-  const [isCloudOffline, setIsCloudOffline] = React.useState<boolean>(false);
   
   // Custom Filters Required by User (Filial, Ano, Mestre Mês) - using multi-select lists
   const [selectedFiliais, setSelectedFiliais] = React.useState<string[]>([]);
@@ -1073,16 +1072,17 @@ export default function Home() {
     const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
       if (user) {
         setCurrentUser(user);
-        if (user.email === 'andreandersoncarvalhorocha1@gmail.com' && user.emailVerified) {
+        const lowerEmail = user.email?.toLowerCase();
+        if ((lowerEmail === 'andreandersoncarvalhorocha1@gmail.com' || lowerEmail === 'andreandersoncarvalho@gmail.com') && user.emailVerified) {
           setUserProfile('Administrador');
           triggerToast(`🔑 Administrador Autenticado por Google: ${user.email}`);
         } else {
-          setUserProfile('Leitor');
+          setUserProfile('Visitante');
           triggerToast(`👤 Conectado por Google (Apenas Leitura): ${user.email}`);
         }
       } else {
         setCurrentUser(null);
-        // Do not force resetting local overrides if user manually toggles it for demonstration/playtesting
+        setUserProfile('Visitante');
       }
     });
 
@@ -1097,7 +1097,6 @@ export default function Home() {
       })
       .catch((err) => {
         console.warn("Could not fetch elements from cloud, falling back to local copies:", err);
-        setIsCloudOffline(true);
         getViagensFromDB().then((saved) => {
           if (saved && saved.length > 0) {
             setViagens(saved);
@@ -1115,7 +1114,6 @@ export default function Home() {
       })
       .catch((error) => {
         console.warn("Metadata retrieval skipped:", error);
-        setIsCloudOffline(true);
       });
 
     fetchImportLogsFromFirestore()
@@ -1126,7 +1124,6 @@ export default function Home() {
       })
       .catch((error) => {
         console.warn("Import logs retrieval skipped:", error);
-        setIsCloudOffline(true);
       });
 
     // D. Hydrate previous user filters & active pagination/navigation states from localStorage
@@ -1173,12 +1170,6 @@ export default function Home() {
 
         const savedLogo = localStorage.getItem('app_logo_url');
         if (savedLogo) setLogoUrl(savedLogo);
-
-        // Retrieve user profile choice if saved
-        const savedProfile = localStorage.getItem('user_profile_role');
-        if (savedProfile) {
-          setUserProfile(savedProfile as any);
-        }
       } catch (e) {
         console.warn('Could not read state from storage', e);
       }
@@ -1277,13 +1268,7 @@ export default function Home() {
       triggerToast("Dados importados e salvos com sucesso.");
     } catch (e: any) {
       console.warn("Firestore error during import sync:", e);
-      const errMsg = e?.message || String(e);
-      if (errMsg.includes("resource-exhausted") || errMsg.includes("Quota") || errMsg.includes("quota")) {
-        setIsCloudOffline(true);
-        triggerToast("⚠️ Salvou localmente com sucesso, mas a Cota da Nuvem (Firestore) está excedida para hoje.");
-      } else {
-        triggerToast("⚠️ Salvou localmente para testes, mas foi recusado na Nuvem (sem login Admin Google no console).");
-      }
+      triggerToast(`⚠️ Salvou localmente para testes, mas foi recusado na Nuvem (sem login Admin Google no console).`);
     }
   };
 
@@ -1326,15 +1311,9 @@ export default function Home() {
         localStorage.removeItem('filters_status_meta');
         
         triggerToast("🧹 Todos os dados importados foram redefinidos para a base padrão na Nuvem com sucesso!");
-      } catch (e: any) {
+      } catch (e) {
         console.warn("Firestore error during reset sync:", e);
-        const errMsg = e?.message || String(e);
-        if (errMsg.includes("resource-exhausted") || errMsg.includes("Quota") || errMsg.includes("quota")) {
-          setIsCloudOffline(true);
-          triggerToast("⚠️ Redefinido localmente com sucesso, mas a Nuvem está Off-line por falta de cota.");
-        } else {
-          triggerToast("⚠️ Redefinido localmente para testes, mas recusado na Nuvem (sem login Admin Google).");
-        }
+        triggerToast("⚠️ Redefinido localmente para testes, mas recusado na Nuvem (sem login Admin Google).");
       }
     }
   };
@@ -1354,21 +1333,11 @@ export default function Home() {
   const handleSignOut = async () => {
     try {
       await signOut(auth);
-      setUserProfile('Leitor');
-      localStorage.setItem('user_profile_role', 'Leitor');
-      triggerToast("👋 Logout efetuado. Retornado ao Perfil de Leitor.");
+      setUserProfile('Visitante');
+      localStorage.removeItem('user_profile_role');
+      triggerToast("👋 Logout efetuado. Retornado ao Perfil de Visitante.");
     } catch (error: any) {
       console.error(error);
-    }
-  };
-
-  const handleProfileToggle = (newRole: 'Administrador' | 'Leitor') => {
-    setUserProfile(newRole);
-    localStorage.setItem('user_profile_role', newRole);
-    if (newRole === 'Administrador' && !currentUser) {
-      triggerToast("⚠️ Modo Administrador Simulado ativo. Importação permitida localmente, mas rejeitada na Nuvem até fazer login com o Google Admin.");
-    } else {
-      triggerToast(`👤 Perfil alterado para ${newRole}.`);
     }
   };
 
@@ -1966,20 +1935,6 @@ export default function Home() {
           <p className="text-[10px] font-bold text-[#737686] uppercase tracking-widest leading-none mt-1">
             Painel de Produtividade
           </p>
-          
-          {isCloudOffline && (
-            <div className="mt-3 p-2.5 bg-amber-50 border border-amber-200/50 rounded-xl flex items-start gap-1.5 shadow-xs select-none">
-              <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse mt-0.5 shrink-0" />
-              <div className="flex flex-col gap-0.5 min-w-0">
-                <span className="text-[9px] font-black text-amber-800 uppercase tracking-widest leading-none">
-                  Modo Off-line Ativo
-                </span>
-                <span className="text-[8px] font-medium text-amber-600 leading-tight">
-                  Cota livre da nuvem excedida (Firestore Quota Exceeded). Operando localmente em sandbox com dados salvos.
-                </span>
-              </div>
-            </div>
-          )}
         </div>
 
         {/* Menu selections */}
@@ -2061,57 +2016,45 @@ export default function Home() {
               </span>
             </div>
 
-            <div className="flex flex-col gap-1.5">
-              <span className="text-[8.5px] font-bold text-[#737686] uppercase">Trocar Perfil:</span>
-              <div className="grid grid-cols-2 gap-1.5">
-                <button
-                  onClick={() => handleProfileToggle('Leitor')}
-                  className={`px-1 py-1.5 text-[10px] font-bold rounded-lg border transition-all ${
-                    userProfile === 'Leitor'
-                      ? 'bg-[#0b1c30] text-white border-[#0b1c30]'
-                      : 'bg-white text-gray-600 border-[#c3c6d7]/40 hover:bg-gray-50'
-                  }`}
-                >
-                  Leitor
-                </button>
-                <button
-                  onClick={() => handleProfileToggle('Administrador')}
-                  className={`px-1 py-1.5 text-[10px] font-bold rounded-lg border transition-all ${
-                    userProfile === 'Administrador' && !currentUser
-                      ? 'bg-[#004ac6] text-white border-[#004ac6]'
-                      : userProfile === 'Administrador' && currentUser
-                        ? 'bg-[#00714d] text-white border-[#00714d]'
-                        : 'bg-white text-gray-600 border-[#c3c6d7]/40 hover:bg-gray-50'
-                  }`}
-                >
-                  Admin
-                </button>
+            {userProfile !== 'Administrador' && (
+              <div className="flex items-center gap-2 text-gray-500 bg-gray-100/50 p-2 rounded-lg border border-dashed border-gray-300/60">
+                <Lock className="w-3.5 h-3.5 text-gray-400 shrink-0" />
+                <span className="text-[10px] font-semibold text-gray-500">
+                  Somente Leitura
+                </span>
               </div>
-            </div>
+            )}
 
-            {/* Google Authentication Section for Admins */}
-            <div className="pt-1.5">
+            {/* Google Authentication Section */}
+            <div className="pt-1">
               {currentUser ? (
                 <div className="space-y-2">
                   <div className="flex items-center gap-1.5 max-w-full">
-                    <img
-                      src={currentUser.photoURL || undefined}
-                      alt="User"
-                      className="w-5 h-5 rounded-full object-cover shrink-0"
-                      referrerPolicy="no-referrer"
-                    />
+                    {currentUser.photoURL ? (
+                      <img
+                        src={currentUser.photoURL}
+                        alt="User"
+                        className="w-5 h-5 rounded-full object-cover shrink-0"
+                        referrerPolicy="no-referrer"
+                      />
+                    ) : (
+                      <div className="w-5 h-5 rounded-full bg-[#004ac6] text-white flex items-center justify-center text-[9px] font-black shrink-0">
+                        {currentUser.email?.charAt(0).toUpperCase()}
+                      </div>
+                    )}
                     <div className="flex flex-col min-w-0">
-                      <span className="text-[9px] font-black text-[#0b1c30] truncate" title={currentUser.displayName || currentUser.email || undefined}>
+                      <span className="text-[10px] font-black text-[#0b1c30] truncate" title={currentUser.displayName || currentUser.email || undefined}>
                         {currentUser.displayName || currentUser.email}
                       </span>
-                      <span className="text-[7.5px] font-semibold text-gray-500 leading-none">
-                        Google Conectado
+                      <span className="text-[8px] font-black text-[#00714d] leading-none flex items-center gap-0.5">
+                        <span className="inline-block w-1 h-1 bg-[#00714d] rounded-full"></span>
+                        {userProfile === 'Administrador' ? 'Admin Autenticado' : 'Leitor Conectado'}
                       </span>
                     </div>
                   </div>
                   <button
                     onClick={handleSignOut}
-                    className="w-full text-[9px] font-black uppercase text-red-600 hover:text-red-700 hover:bg-red-50 py-1 rounded border border-red-200/40 text-center transition-colors"
+                    className="w-full text-[9px] font-black uppercase text-red-600 hover:text-red-700 hover:bg-red-50 py-1 rounded border border-red-200/40 text-center transition-colors cursor-pointer"
                   >
                     Logout Google
                   </button>
@@ -2123,7 +2066,7 @@ export default function Home() {
                   </p>
                   <button
                     onClick={handleGoogleSignIn}
-                    className="w-full text-[9px] font-bold text-gray-700 bg-white hover:bg-gray-50 border border-gray-300 py-1 px-2 rounded flex items-center justify-center gap-1 transition-colors"
+                    className="w-full text-[9px] font-bold text-gray-700 bg-white hover:bg-gray-50 border border-gray-300 py-1 px-2 rounded flex items-center justify-center gap-1 transition-colors cursor-pointer"
                   >
                     <span className="text-red-500">G</span> Login Admin Google
                   </button>
@@ -2141,13 +2084,15 @@ export default function Home() {
           </button>
 
           <div className="border-t border-[#c3c6d7]/40 pt-4 flex flex-col gap-1">
-            <button
-              onClick={() => { triggerToast("⚙️ Redirecionando para as Configurações do Sistema..."); setIsSidebarOpen(false); }}
-              className="w-full flex items-center gap-3 px-4 py-2 text-[#434655] hover:bg-gray-100 text-xs font-bold rounded-lg transition-colors"
-            >
-              <Settings className="w-4 h-4" />
-              Configurações
-            </button>
+            {userProfile === 'Administrador' && (
+              <button
+                onClick={() => { triggerToast("⚙️ Redirecionando para as Configurações do Sistema..."); setIsSidebarOpen(false); }}
+                className="w-full flex items-center gap-3 px-4 py-2 text-[#434655] hover:bg-gray-100 text-xs font-bold rounded-lg transition-colors"
+              >
+                <Settings className="w-4 h-4" />
+                Configurações
+              </button>
+            )}
             <button
               onClick={async () => {
                 await clearViagensFromDB();
@@ -2313,42 +2258,28 @@ export default function Home() {
             </div>
 
             {/* Clear persistent data */}
-            <button
-              onClick={() => {
-                if (userProfile !== 'Administrador') {
-                  triggerToast("❌ Acesso Reservado: Apenas o Administrador pode limpar ou redefinir dados.");
-                } else {
-                  handleClearAllData();
-                }
-              }}
-              className={`border border-[#c3c6d7]/50 p-2 sm:px-3 sm:py-2 rounded-lg text-xs font-bold active:scale-95 flex items-center gap-1.5 transition-all cursor-pointer ${
-                userProfile !== 'Administrador' ? 'opacity-50 text-gray-400 border-dashed hover:bg-transparent' : 'text-[#434655] hover:bg-red-50 hover:text-red-500'
-              }`}
-              title="Limpar todos os dados importados"
-            >
-              {userProfile !== 'Administrador' ? <Lock className="w-4 h-4 text-gray-400" /> : <Trash2 className="w-4 h-4" />}
-              <span className="hidden xl:inline">Limpar Dados</span>
-            </button>
+            {userProfile === 'Administrador' && (
+              <button
+                onClick={handleClearAllData}
+                className="border border-[#c3c6d7]/50 p-2 sm:px-3 sm:py-2 rounded-lg text-xs font-bold active:scale-95 flex items-center gap-1.5 transition-all cursor-pointer text-[#434655] hover:bg-red-50 hover:text-red-500"
+                title="Limpar todos os dados importados"
+              >
+                <Trash2 className="w-4 h-4" />
+                <span className="hidden xl:inline">Limpar Dados</span>
+              </button>
+            )}
 
             {/* Import Planilha Trigger */}
-            <button
-              onClick={() => {
-                if (userProfile !== 'Administrador') {
-                  triggerToast("❌ Acesso Reservado: Ative o perfil Administrador no menu para importar novas planilhas.");
-                } else {
-                  setIsImportOpen(true);
-                }
-              }}
-              className={`p-2 sm:px-4 sm:py-2 rounded-lg text-xs font-extrabold shadow-sm active:scale-95 flex items-center gap-2 transition-all cursor-pointer ${
-                userProfile !== 'Administrador'
-                  ? 'bg-gray-200 text-gray-500 border border-gray-300 pointer-events-auto opacity-75'
-                  : 'bg-[#004ac6] text-white hover:bg-opacity-95'
-              }`}
-              title="Importar Planilha"
-            >
-              {userProfile !== 'Administrador' ? <Lock className="w-4 h-4 text-gray-500" /> : <Upload className="w-4 h-4" />}
-              <span className="hidden md:inline">Importar Planilha</span>
-            </button>
+            {userProfile === 'Administrador' && (
+              <button
+                onClick={() => setIsImportOpen(true)}
+                className="p-2 sm:px-4 sm:py-2 rounded-lg text-xs font-extrabold shadow-sm active:scale-95 flex items-center gap-2 transition-all cursor-pointer bg-[#004ac6] text-white hover:bg-opacity-95"
+                title="Importar Planilha"
+              >
+                <Upload className="w-4 h-4" />
+                <span className="hidden md:inline">Importar Planilha</span>
+              </button>
+            )}
 
             {/* Notifications simulated */}
             <button

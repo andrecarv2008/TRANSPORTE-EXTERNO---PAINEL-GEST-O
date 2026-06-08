@@ -17,25 +17,28 @@ service cloud.firestore {
     }
 
     function isAdmin() {
-      return isVerifiedEmail() && request.auth.token.email == "andreandersoncarvalhorocha1@gmail.com";
+      return isVerifiedEmail() && (
+        request.auth.token.email == "andreandersoncarvalho@gmail.com" || 
+        request.auth.token.email == "andreandersoncarvalhorocha1@gmail.com"
+      );
     }
 
     // For voyages (viagens)
     match /viagens/{viagemId} {
-      // Allow read and write access for both auto-hydration and playtesting spreadsheet uploads/resets
-      allow read, write: if true;
+      allow read: if true;
+      allow write: if isAdmin();
     }
 
     // For metadata
     match /metadata/{metadataId} {
-      // Allow read and write access to update the last upload metadata
-      allow read, write: if true;
+      allow read: if true;
+      allow write: if isAdmin();
     }
 
     // For import logs history (logs)
     match /import_logs/{logId} {
-      // Allow read and write access for storing Excel import history logs
-      allow read, write: if true;
+      allow read: if true;
+      allow write: if isAdmin();
     }
   }
 }

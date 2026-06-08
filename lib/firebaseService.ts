@@ -8,7 +8,7 @@ import {
   writeBatch,
   query,
 } from 'firebase/firestore';
-import { db, handleFirestoreError, OperationType, isFirestoreNetworkDisabled } from './firebase';
+import { db, handleFirestoreError, OperationType } from './firebase';
 import { Viagem } from './types';
 import { INITIAL_VIAGENS } from './data';
 
@@ -40,9 +40,6 @@ const LOGS_COLLECTION = 'import_logs';
  */
 export async function fetchViagensFromFirestore(): Promise<Viagem[]> {
   try {
-    if (isFirestoreNetworkDisabled()) {
-      throw new Error("Firebase Quota Limit Exceeded (Offline Mode Active)");
-    }
     const q = query(collection(db, VIAGENS_COLLECTION));
     const querySnapshot = await getDocs(q);
     
@@ -52,15 +49,20 @@ export async function fetchViagensFromFirestore(): Promise<Viagem[]> {
     });
 
     if (docs.length === 0) {
-      console.log("Firestore voyages collection empty. Returning INITIAL_VIAGENS as fallback without writing to cloud to preserve quota.");
+      console.log("Firestore voyages collection empty. Hydrating with INITIAL_VIAGENS...");
+      try {
+        await saveViagensToFirestore(INITIAL_VIAGENS, 'substituir', {
+          uploaderName: 'Sistema (Auto)',
+          fileName: 'Base_Inicial_Hidratada.xlsx',
+        });
+      } catch (err) {
+        console.warn("Could not auto-hydrate Firestore cloud database (user likely lacks write permissions). Falling back to local data.", err);
+      }
       return INITIAL_VIAGENS;
     }
 
     return docs;
   } catch (error) {
-    if (error instanceof Error && error.message.includes("Offline Mode Active")) {
-      throw error;
-    }
     handleFirestoreError(error, OperationType.GET, VIAGENS_COLLECTION);
     return []; // fallback of type safety
   }
@@ -76,10 +78,6 @@ export async function saveViagensToFirestore(
   meta: { uploaderName: string; fileName: string }
 ): Promise<void> {
   try {
-    if (isFirestoreNetworkDisabled()) {
-      throw new Error("Firebase Quota Limit Exceeded (Offline Mode Active)");
-    }
-
     // 1. If 'substituir', delete all current and old viajes from Firestore
     if (mode === 'substituir') {
       const q = query(collection(db, VIAGENS_COLLECTION));
@@ -173,9 +171,6 @@ export async function saveViagensToFirestore(
     };
     await saveImportLogToFirestore(logPayload);
   } catch (error) {
-    if (error instanceof Error && error.message.includes("Offline Mode Active")) {
-      throw error;
-    }
     handleFirestoreError(error, OperationType.WRITE, VIAGENS_COLLECTION);
   }
 }
@@ -185,16 +180,10 @@ export async function saveViagensToFirestore(
  */
 export async function saveImportLogToFirestore(log: Omit<ImportLog, 'id'>): Promise<void> {
   try {
-    if (isFirestoreNetworkDisabled()) {
-      throw new Error("Firebase Quota Limit Exceeded (Offline Mode Active)");
-    }
     const logId = String(log.timestamp);
     const docRef = doc(db, LOGS_COLLECTION, logId);
     await setDoc(docRef, log);
   } catch (error) {
-    if (error instanceof Error && error.message.includes("Offline Mode Active")) {
-      throw error;
-    }
     handleFirestoreError(error, OperationType.WRITE, LOGS_COLLECTION);
   }
 }
@@ -204,9 +193,6 @@ export async function saveImportLogToFirestore(log: Omit<ImportLog, 'id'>): Prom
  */
 export async function fetchImportLogsFromFirestore(): Promise<ImportLog[]> {
   try {
-    if (isFirestoreNetworkDisabled()) {
-      throw new Error("Firebase Quota Limit Exceeded (Offline Mode Active)");
-    }
     const q = query(collection(db, LOGS_COLLECTION));
     const querySnapshot = await getDocs(q);
     const logs: ImportLog[] = [];
@@ -216,9 +202,6 @@ export async function fetchImportLogsFromFirestore(): Promise<ImportLog[]> {
     // Sort desc by timestamp
     return logs.sort((a, b) => b.timestamp - a.timestamp);
   } catch (error) {
-    if (error instanceof Error && error.message.includes("Offline Mode Active")) {
-      throw error;
-    }
     handleFirestoreError(error, OperationType.GET, LOGS_COLLECTION);
     return [];
   }
@@ -229,9 +212,6 @@ export async function fetchImportLogsFromFirestore(): Promise<ImportLog[]> {
  */
 export async function fetchLastUpdateMetadata(): Promise<MetadataLastUpdate | null> {
   try {
-    if (isFirestoreNetworkDisabled()) {
-      throw new Error("Firebase Quota Limit Exceeded (Offline Mode Active)");
-    }
     const docRef = doc(db, METADATA_COLLECTION, 'last_update');
     const docSnap = await getDoc(docRef);
     if (docSnap.exists()) {
@@ -239,9 +219,6 @@ export async function fetchLastUpdateMetadata(): Promise<MetadataLastUpdate | nu
     }
     return null;
   } catch (error) {
-    if (error instanceof Error && error.message.includes("Offline Mode Active")) {
-      throw error;
-    }
     handleFirestoreError(error, OperationType.GET, `${METADATA_COLLECTION}/last_update`);
     return null;
   }
@@ -252,17 +229,11 @@ export async function fetchLastUpdateMetadata(): Promise<MetadataLastUpdate | nu
  */
 export async function resetViagensInFirestore(uploader: string = "Administrador"): Promise<void> {
   try {
-    if (isFirestoreNetworkDisabled()) {
-      throw new Error("Firebase Quota Limit Exceeded (Offline Mode Active)");
-    }
     await saveViagensToFirestore(INITIAL_VIAGENS, 'substituir', {
       uploaderName: uploader,
       fileName: 'Base_Redefinida_Inicial.xlsx',
     });
   } catch (error) {
-    if (error instanceof Error && error.message.includes("Offline Mode Active")) {
-      throw error;
-    }
     handleFirestoreError(error, OperationType.DELETE, VIAGENS_COLLECTION);
   }
 }
