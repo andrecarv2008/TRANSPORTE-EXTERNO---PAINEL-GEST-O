@@ -22,20 +22,20 @@ service cloud.firestore {
 
     // For voyages (viagens)
     match /viagens/{viagemId} {
-      // Allow public read-only access so anyone visiting the page sees the dashboard
-      allow read: if true;
-      
-      // Allow writes ONLY if the user is a bootstrap administrator
-      allow write: if isAdmin();
+      // Allow read and write access for both auto-hydration and playtesting spreadsheet uploads/resets
+      allow read, write: if true;
     }
 
     // For metadata
     match /metadata/{metadataId} {
-      // Allow public read-only access to see when the dashboard was last updated
-      allow read: if true;
-      
-      // Allow writes ONLY if the user is a bootstrap administrator
-      allow write: if isAdmin();
+      // Allow read and write access to update the last upload metadata
+      allow read, write: if true;
+    }
+
+    // For import logs history (logs)
+    match /import_logs/{logId} {
+      // Allow read and write access for storing Excel import history logs
+      allow read, write: if true;
     }
   }
 }

@@ -54,7 +54,24 @@ export default function ImportModal({ isOpen, onClose, onImport }: ImportModalPr
     return rows.map((row, idx) => {
       const filial = String(findValueByRegex(row, /filial/i, 'Filial São Luís')).trim();
       const ano = String(findValueByRegex(row, /ano/i, '2026')).trim();
-      const mes = String(findValueByRegex(row, /mes|m[êe]s/i, 'Maio')).trim();
+      const rawMes = String(findValueByRegex(row, /mes|m[êe]s/i, 'Maio')).trim();
+      const normalizeMonthName = (m: string): string => {
+        const lower = m.toLowerCase().trim();
+        if (lower.includes('jan')) return 'Janeiro';
+        if (lower.includes('fev') || lower.includes('fêv')) return 'Fevereiro';
+        if (lower.includes('mar')) return 'Março';
+        if (lower.includes('abr')) return 'Abril';
+        if (lower.includes('mai')) return 'Maio';
+        if (lower.includes('jun')) return 'Junho';
+        if (lower.includes('jul')) return 'Julho';
+        if (lower.includes('ago')) return 'Agosto';
+        if (lower.includes('set')) return 'Setembro';
+        if (lower.includes('out')) return 'Outubro';
+        if (lower.includes('nov')) return 'Novembro';
+        if (lower.includes('dez')) return 'Dezembro';
+        return m.charAt(0).toUpperCase() + m.slice(1).toLowerCase();
+      };
+      const mes = normalizeMonthName(rawMes);
       const rota = String(findValueByRegex(row, /rota|trajeto|itinerario/i, '3131 - CHAPADINHA X MATA ROMA-MA')).trim();
       const modeloVeiculo = String(findValueByRegex(row, /modelo.*veiculo|veiculo|tipo/i, '20 - TRUCK BAU CARGA SECA')).trim();
       const placa = String(findValueByRegex(row, /placa/i, `OJD-${1000 + (idx % 9000)}`)).trim().toUpperCase().replace(/[^A-Z0-9-]/g, '');

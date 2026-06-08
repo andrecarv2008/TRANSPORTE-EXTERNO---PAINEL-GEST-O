@@ -33,7 +33,8 @@ import {
   Trash2,
   User,
   UserCheck,
-  Wrench
+  Wrench,
+  Database
 } from 'lucide-react';
 
 import { Viagem, PlacaMetrics } from '@/lib/types';
@@ -53,7 +54,9 @@ import {
   saveViagensToFirestore,
   fetchLastUpdateMetadata,
   resetViagensInFirestore,
-  MetadataLastUpdate
+  MetadataLastUpdate,
+  ImportLog,
+  fetchImportLogsFromFirestore
 } from '@/lib/firebaseService';
 import { auth } from '@/lib/firebase';
 import {
@@ -64,66 +67,144 @@ import {
   User as FirebaseUser
 } from 'firebase/auth';
 import { Shield, Info, Lock } from 'lucide-react';
+import { createPortal } from 'react-dom';
 
 const PlateTooltip = ({ plateData, children }: { plateData: PlacaMetrics; children: React.ReactNode }) => {
+  const [isOpen, setIsOpen] = React.useState(false);
+  const [mounted, setMounted] = React.useState(false);
+  const [coords, setCoords] = React.useState({ top: 0, left: 0 });
+  const triggerRef = React.useRef<HTMLDivElement>(null);
+  const tooltipRef = React.useRef<HTMLDivElement>(null);
+
+  React.useEffect(() => {
+    const handle = setTimeout(() => {
+      setMounted(true);
+    }, 0);
+    return () => clearTimeout(handle);
+  }, []);
+
+  const updatePosition = () => {
+    if (triggerRef.current) {
+      const rect = triggerRef.current.getBoundingClientRect();
+      const scrollY = window.pageYOffset || document.documentElement.scrollTop;
+      const scrollX = window.pageXOffset || document.documentElement.scrollLeft;
+      setCoords({
+        top: rect.top + scrollY - 6,
+        left: rect.left + scrollX + rect.width / 2,
+      });
+    }
+  };
+
+  React.useEffect(() => {
+    if (isOpen) {
+      updatePosition();
+      // Handle page scroll/resize to keep the portal aligned
+      window.addEventListener('scroll', updatePosition, true);
+      window.addEventListener('resize', updatePosition);
+    }
+    return () => {
+      window.removeEventListener('scroll', updatePosition, true);
+      window.removeEventListener('resize', updatePosition);
+    };
+  }, [isOpen]);
+
+  React.useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        triggerRef.current && !triggerRef.current.contains(event.target as Node) &&
+        tooltipRef.current && !tooltipRef.current.contains(event.target as Node)
+      ) {
+        setIsOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, []);
+
   if (!plateData) return <>{children}</>;
   const faturamentoBruto = plateData.faturamentoTotal;
   const despesaOficina = plateData.despesaOficinaTotal || 0;
   const faturamentoLiquido = faturamentoBruto - despesaOficina;
 
-  return (
-    <div className="relative group inline-block cursor-help">
-      {children}
-      <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-3.5 w-[315px] bg-[#0b1c30]/95 backdrop-blur-md text-white rounded-xl p-4 shadow-2xl border border-white/10 opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-all duration-200 scale-95 group-hover:scale-100 z-50 text-left font-sans normal-case select-none">
-        <div className="flex justify-between items-center border-b border-white/10 pb-2 mb-2">
-          <span className="text-xs font-black tracking-wider bg-[#004ac6] px-2 py-0.5 rounded text-white font-mono">{plateData.placa}</span>
-          <span className={`text-[9px] font-black px-2 py-0.5 rounded-full flex items-center gap-1 ${
-            plateData.viagensCount >= 4 ? 'bg-[#6cf8bb]/15 text-[#6cf8bb]' : 'bg-red-500/15 text-red-300'
-          }`}>
-            {plateData.viagensCount >= 4 ? '🟢 DENTRO DA META' : '🔴 FORA DA META'}
-          </span>
-        </div>
-        <div className="space-y-1.5 text-[11px] font-bold">
-          <div className="flex justify-between gap-4">
-            <span className="text-slate-400">Supervisor:</span>
-            <span className="text-white truncate max-w-[150px] uppercase text-right">{plateData.supervisor || 'Sem Supervisor'}</span>
-          </div>
-          <div className="flex justify-between gap-4">
-            <span className="text-slate-400">Motorista Principal:</span>
-            <span className="text-white truncate max-w-[150px] uppercase text-right">{plateData.motorista || 'Sem Motorista'}</span>
-          </div>
-          <div className="flex justify-between border-t border-white/5 pt-1.5">
-            <span className="text-slate-400">Quantidade de Viagens:</span>
-            <span className="text-white">{plateData.viagensCount}</span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-slate-400">Percentual da Meta:</span>
-            <span className="text-white">{plateData.percentMeta}%</span>
-          </div>
-          <div className="flex justify-between border-t border-white/5 pt-1.5">
-            <span className="text-slate-400 font-semibold">Faturamento Bruto:</span>
-            <span className="text-blue-400 font-black">R$ {faturamentoBruto.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-slate-400 font-semibold">Despesa Oficina:</span>
-            <span className="text-red-400 font-black">R$ {despesaOficina.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-slate-300 font-black">Faturamento Líquido:</span>
-            <span className="text-[#6cf8bb] font-black">R$ {faturamentoLiquido.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-          </div>
-          <div className="flex justify-between border-t border-white/5 pt-1.5">
-            <span className="text-slate-400">Km Rodado Total:</span>
-            <span className="text-white">{plateData.kmRodadoTotal?.toLocaleString('pt-BR') || '0'} km</span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-slate-400">Quantidade de Conhecimentos:</span>
-            <span className="text-white">{plateData.conhecimentosCount || 0}</span>
-          </div>
-        </div>
-        <div className="absolute top-full left-1/2 -translate-x-1/2 border-[6px] border-transparent border-t-[#0b1c30]/95" />
+  const tooltipBody = (
+    <div
+      ref={tooltipRef}
+      style={{
+        position: 'absolute',
+        top: `${coords.top}px`,
+        left: `${coords.left}px`,
+        transform: 'translate(-50%, -100%)',
+      }}
+      className="mb-2 w-[315px] bg-[#0b1c30]/95 backdrop-blur-md text-white rounded-xl p-4 shadow-2xl border border-white/10 z-[9999] text-left font-sans normal-case select-none animate-in fade-in zoom-in-95 duration-150"
+    >
+      <div className="flex justify-between items-center border-b border-white/10 pb-2 mb-2">
+        <span className="text-xs font-black tracking-wider bg-[#004ac6] px-2 py-0.5 rounded text-white font-mono">{plateData.placa}</span>
+        <span className={`text-[9px] font-black px-2 py-0.5 rounded-full flex items-center gap-1 ${
+          plateData.viagensCount >= 4 ? 'bg-[#6cf8bb]/15 text-[#6cf8bb]' : 'bg-red-500/15 text-red-300'
+        }`}>
+          {plateData.viagensCount >= 4 ? '🟢 DENTRO DA META' : '🔴 FORA DA META'}
+        </span>
       </div>
+      <div className="space-y-1.5 text-[11px] font-bold">
+        <div className="flex justify-between gap-4">
+          <span className="text-slate-400">Supervisor:</span>
+          <span className="text-white truncate max-w-[150px] uppercase text-right">{plateData.supervisor || 'Sem Supervisor'}</span>
+        </div>
+        <div className="flex justify-between gap-4">
+          <span className="text-slate-400">Motorista Principal:</span>
+          <span className="text-white truncate max-w-[150px] uppercase text-right">{plateData.motorista || 'Sem Motorista'}</span>
+        </div>
+        <div className="flex justify-between border-t border-white/5 pt-1.5">
+          <span className="text-slate-400">Quantidade de Viagens:</span>
+          <span className="text-white font-black">{plateData.viagensCount}</span>
+        </div>
+        <div className="flex justify-between">
+          <span className="text-slate-400">Percentual da Meta:</span>
+          <span className="text-white">{plateData.percentMeta}%</span>
+        </div>
+        <div className="flex justify-between border-t border-white/5 pt-1.5">
+          <span className="text-slate-400 font-semibold">Faturamento Bruto:</span>
+          <span className="text-blue-400 font-black">R$ {faturamentoBruto.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+        </div>
+        <div className="flex justify-between">
+          <span className="text-slate-400 font-semibold">Despesa Oficina:</span>
+          <span className="text-red-400 font-black">R$ {despesaOficina.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+        </div>
+        <div className="flex justify-between">
+          <span className="text-slate-300 font-black">Faturamento Líquido:</span>
+          <span className="text-[#6cf8bb] font-black">R$ {faturamentoLiquido.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+        </div>
+        <div className="flex justify-between border-t border-white/5 pt-1.5">
+          <span className="text-slate-400">Km Rodado Total:</span>
+          <span className="text-white">{plateData.kmRodadoTotal?.toLocaleString('pt-BR') || '0'} km</span>
+        </div>
+        <div className="flex justify-between">
+          <span className="text-slate-400">Quantidade de Conhecimentos:</span>
+          <span className="text-white">{plateData.conhecimentosCount || 0}</span>
+        </div>
+      </div>
+      <div className="absolute top-full left-1/2 -translate-x-1/2 border-[6px] border-transparent border-t-[#0b1c30]/95" />
     </div>
+  );
+
+  return (
+    <>
+      <div 
+        ref={triggerRef}
+        className="inline-block"
+        onMouseEnter={() => setIsOpen(true)}
+        onMouseLeave={() => setIsOpen(false)}
+        onClick={(e) => {
+          e.stopPropagation();
+          setIsOpen(!isOpen);
+        }}
+      >
+        {children}
+      </div>
+      {isOpen && mounted && typeof document !== 'undefined' && createPortal(tooltipBody, document.body)}
+    </>
   );
 };
 
@@ -240,6 +321,23 @@ const mapMes = (mes?: string): string => {
   if (m.includes('nov')) return '11';
   if (m.includes('dez')) return '12';
   return '05';
+};
+
+const normalizeMonthName = (m: string): string => {
+  const lower = m.toLowerCase().trim();
+  if (lower.includes('jan')) return 'Janeiro';
+  if (lower.includes('fev') || lower.includes('fêv')) return 'Fevereiro';
+  if (lower.includes('mar')) return 'Março';
+  if (lower.includes('abr')) return 'Abril';
+  if (lower.includes('mai')) return 'Maio';
+  if (lower.includes('jun')) return 'Junho';
+  if (lower.includes('jul')) return 'Julho';
+  if (lower.includes('ago')) return 'Agosto';
+  if (lower.includes('set')) return 'Setembro';
+  if (lower.includes('out')) return 'Outubro';
+  if (lower.includes('nov')) return 'Novembro';
+  if (lower.includes('dez')) return 'Dezembro';
+  return m.charAt(0).toUpperCase() + m.slice(1).toLowerCase();
 };
 
 interface DriverDetailModalProps {
@@ -750,13 +848,179 @@ const DriverDetailModal = ({ driverName, activeViagens, onClose, triggerToast }:
   );
 };
 
+interface PlacasDetailModalProps {
+  categoryLabel: string | null;
+  rankings: PlacaMetrics[];
+  onClose: () => void;
+}
+
+const PlacasDetailModal = ({ categoryLabel, rankings, onClose }: PlacasDetailModalProps) => {
+  if (!categoryLabel) return null;
+
+  const filteredRankings = rankings.filter(r => {
+    const vc = r.viagensCount;
+    if (categoryLabel === '1 viagem') return vc === 1;
+    if (categoryLabel === '2 viagens') return vc === 2;
+    if (categoryLabel === '3 viagens') return vc === 3;
+    if (categoryLabel === '4 viagens') return vc === 4;
+    if (categoryLabel === '5 ou mais') return vc >= 5;
+    return false;
+  });
+
+  const totalFaturamento = filteredRankings.reduce((sum, r) => sum + r.faturamentoTotal, 0);
+  const totalDespesa = filteredRankings.reduce((sum, r) => sum + (r.despesaOficinaTotal || 0), 0);
+  const totalLiquido = totalFaturamento - totalDespesa;
+
+  return (
+    <div 
+      className="fixed inset-0 bg-[#0b1c30]/60 backdrop-blur-xs z-55 flex items-center justify-center p-4 md:p-6"
+      onClick={onClose}
+    >
+      <div 
+        className="bg-white w-full max-w-6xl xl:max-w-7xl rounded-2xl shadow-2xl border border-[#c3c6d7]/30 flex flex-col max-h-[90vh] overflow-hidden"
+        onClick={e => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="bg-[#0b1c30] px-6 py-4 flex items-center justify-between border-b border-white/10 shrink-0">
+          <div>
+            <p className="text-[10px] font-black text-blue-400 uppercase tracking-widest leading-none">Detalhamento por Faixa de Viagens</p>
+            <h2 className="text-lg font-black text-white mt-1 uppercase leading-tight">Placas na categoria: {categoryLabel}</h2>
+            <p className="text-xs text-slate-300 mt-1 font-medium font-sans">
+              Total nesta faixa: <span className="text-white font-extrabold">{filteredRankings.length} veículos</span>
+            </p>
+          </div>
+          <button 
+            onClick={onClose}
+            className="p-1.5 rounded-lg text-white/70 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+          >
+            <X className="w-6 h-6" />
+          </button>
+        </div>
+
+        {/* Mini Summary Cards inside Modal */}
+        <div className="bg-slate-50 border-b border-slate-100 p-4 shrink-0 grid grid-cols-3 gap-4 font-sans text-xs">
+          <div className="bg-white p-3 rounded-xl border border-slate-200/65 shadow-xs">
+            <span className="text-[9px] text-[#737686] font-bold uppercase tracking-wider block">Faturamento Bruto Total</span>
+            <span className="text-sm font-black text-blue-600 block mt-1">
+              R$ {totalFaturamento.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+            </span>
+          </div>
+          <div className="bg-white p-3 rounded-xl border border-slate-200/65 shadow-xs">
+            <span className="text-[9px] text-[#737686] font-bold uppercase tracking-wider block">Despesa Oficina Total</span>
+            <span className="text-sm font-black text-red-500 block mt-1">
+              R$ {totalDespesa.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+            </span>
+          </div>
+          <div className="bg-white p-3 rounded-xl border border-slate-200/65 shadow-xs">
+            <span className="text-[9px] text-[#737686] font-bold uppercase tracking-wider block">Faturamento Líquido Total</span>
+            <span className="text-sm font-black text-emerald-600 block mt-1">
+              R$ {totalLiquido.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+            </span>
+          </div>
+        </div>
+
+        {/* Table Body Content */}
+        <div className="flex-1 overflow-y-auto p-6 min-h-0">
+          {filteredRankings.length === 0 ? (
+            <div className="text-center py-12 text-slate-400">
+              <p className="text-sm font-bold font-sans">Nenhum veículo encontrado nesta faixa para os filtros selecionados.</p>
+            </div>
+          ) : (
+            <div className="overflow-hidden border border-slate-200 rounded-xl bg-white shadow-xs">
+              <table className="w-full text-left text-xs font-sans">
+                <thead className="bg-slate-100 text-[10px] uppercase font-black tracking-wider text-slate-500 border-b border-slate-200">
+                  <tr>
+                    <th className="px-4 py-3 text-center w-16">Classif.</th>
+                    <th className="px-4 py-3">Placa</th>
+                    <th className="px-4 py-3">Motorista</th>
+                    <th className="px-4 py-3">Supervisor</th>
+                    <th className="px-4 py-3 text-center">Viagens</th>
+                    <th className="px-4 py-3 text-right">Fat. Bruto</th>
+                    <th className="px-4 py-3 text-right">Faturamento Líquido</th>
+                    <th className="px-4 py-3 text-center">Meta</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {filteredRankings.map((r) => {
+                    const idx = rankings.findIndex(rank => rank.placa === r.placa) + 1;
+                    const faturamentoBruto = r.faturamentoTotal;
+                    const despesaOficina = r.despesaOficinaTotal || 0;
+                    const faturamentoLiquido = faturamentoBruto - despesaOficina;
+                    const isInsideMeta = r.viagensCount >= 4;
+
+                    return (
+                      <tr key={r.placa} className="hover:bg-slate-50/70 transition-colors">
+                        <td className="px-4 py-3 text-center">
+                          <span className={`inline-flex items-center justify-center w-6 h-6 rounded-full text-[10px] font-mono border ${
+                            idx === 1 ? 'bg-amber-100 border-amber-300 text-amber-700 font-extrabold' : 
+                            idx === 2 ? 'bg-slate-100 border-slate-300 text-slate-700 font-extrabold' :
+                            idx === 3 ? 'bg-orange-50 border-orange-200 text-orange-700 font-extrabold' :
+                            'bg-slate-50 border-slate-100 text-slate-500'
+                          }`}>
+                            {idx}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className="px-2 py-0.5 rounded text-[10px] font-mono font-black tracking-wider bg-blue-50 text-blue-700 border border-blue-200">
+                            {r.placa}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 font-bold text-slate-700 uppercase truncate max-w-[320px]">
+                          {r.motorista || 'Sem Motorista'}
+                        </td>
+                        <td className="px-4 py-3 font-bold text-slate-500 uppercase truncate max-w-[240px]">
+                          {r.supervisor || 'Sem Supervisor'}
+                        </td>
+                        <td className="px-4 py-3 text-center font-black text-slate-800">
+                          {r.viagensCount}
+                        </td>
+                        <td className="px-4 py-3 text-right text-slate-600 font-bold font-mono">
+                          R$ {faturamentoBruto.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </td>
+                        <td className="px-4 py-3 text-right font-black text-emerald-600 font-mono">
+                          R$ {faturamentoLiquido.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </td>
+                        <td className="px-4 py-3 text-center">
+                          <span className={`text-[9px] font-black px-2 py-0.5 rounded-full whitespace-nowrap ${
+                            isInsideMeta ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-red-50 text-red-700 border border-red-200'
+                          }`}>
+                            {isInsideMeta ? 'DENTRO' : 'FORA'}
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+        
+        {/* Footer */}
+        <div className="bg-slate-50 px-6 py-3.5 border-t border-slate-100 text-right shrink-0">
+          <button
+            onClick={onClose}
+            className="px-4 py-1.5 bg-[#0b1c30] text-white text-xs font-black rounded-lg hover:bg-opacity-90 transition-colors uppercase tracking-wider cursor-pointer"
+          >
+            Fechar
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 export default function Home() {
   const [viagens, setViagens] = React.useState<Viagem[]>(INITIAL_VIAGENS);
   const [isSidebarOpen, setIsSidebarOpen] = React.useState(false);
-  const [activeTab, setActiveTab] = React.useState<'dashboard' | 'vehiculos' | 'motoristas' | 'rotas' | 'relatorios' | 'comparativo'>('dashboard');
+  const [hoveredBarLabel, setHoveredBarLabel] = React.useState<string | null>(null);
+  const [activeTab, setActiveTab] = React.useState<'dashboard' | 'vehiculos' | 'rotas' | 'relatorios' | 'comparativo'>('dashboard');
   const [selectedComparisonKey, setSelectedComparisonKey] = React.useState<string | null>(null);
+  const [comparisonBaseKey, setComparisonBaseKey] = React.useState<string | null>(null);
   const [isImportOpen, setIsImportOpen] = React.useState(false);
   const [searchQuery, setSearchQuery] = React.useState('');
+  const [searchMotorista, setSearchMotorista] = React.useState('');
+  const [searchPlaca, setSearchPlaca] = React.useState('');
   const [logoUrl, setLogoUrl] = React.useState<string>('');
   const [isLogoSettingsOpen, setIsLogoSettingsOpen] = React.useState(false);
   
@@ -764,7 +1028,9 @@ export default function Home() {
   const [userProfile, setUserProfile] = React.useState<'Administrador' | 'Leitor'>('Leitor');
   const [currentUser, setCurrentUser] = React.useState<FirebaseUser | null>(null);
   const [lastUpdate, setLastUpdate] = React.useState<MetadataLastUpdate | null>(null);
+  const [importLogs, setImportLogs] = React.useState<ImportLog[]>([]);
   const [dbLoading, setDbLoading] = React.useState<boolean>(true);
+  const [isCloudOffline, setIsCloudOffline] = React.useState<boolean>(false);
   
   // Custom Filters Required by User (Filial, Ano, Mestre Mês) - using multi-select lists
   const [selectedFiliais, setSelectedFiliais] = React.useState<string[]>([]);
@@ -776,10 +1042,15 @@ export default function Home() {
   const [toastMessage, setToastMessage] = React.useState<string | null>(null);
   const [selectedDriverName, setSelectedDriverName] = React.useState<string | null>(null);
   const [selectedRouteName, setSelectedRouteName] = React.useState<string | null>(null);
+  const [selectedTripCategory, setSelectedTripCategory] = React.useState<string | null>(null);
 
   // Pagination for Trips / Relatórios Table
   const [currentPage, setCurrentPage] = React.useState(1);
   const itemsPerPage = 8;
+
+  // New States for Vehicles Tab Dashboard
+  const [vehiculosSearchQuery, setVehiculosSearchQuery] = React.useState('');
+  const [vehiculosPage, setVehiculosPage] = React.useState(1);
 
   // Filter values for Relatórios
   const [filterPlaca, setFilterPlaca] = React.useState('');
@@ -826,6 +1097,7 @@ export default function Home() {
       })
       .catch((err) => {
         console.warn("Could not fetch elements from cloud, falling back to local copies:", err);
+        setIsCloudOffline(true);
         getViagensFromDB().then((saved) => {
           if (saved && saved.length > 0) {
             setViagens(saved);
@@ -834,7 +1106,7 @@ export default function Home() {
         setDbLoading(false);
       });
 
-    // C. Fetch latest upload metadata from Cloud Firestore
+    // C. Fetch latest upload metadata and import logs from Cloud Firestore
     fetchLastUpdateMetadata()
       .then((meta) => {
         if (meta) {
@@ -843,6 +1115,18 @@ export default function Home() {
       })
       .catch((error) => {
         console.warn("Metadata retrieval skipped:", error);
+        setIsCloudOffline(true);
+      });
+
+    fetchImportLogsFromFirestore()
+      .then((logs) => {
+        if (logs) {
+          setImportLogs(logs);
+        }
+      })
+      .catch((error) => {
+        console.warn("Import logs retrieval skipped:", error);
+        setIsCloudOffline(true);
       });
 
     // D. Hydrate previous user filters & active pagination/navigation states from localStorage
@@ -984,11 +1268,22 @@ export default function Home() {
       if (meta) {
         setLastUpdate(meta);
       }
+
+      const logs = await fetchImportLogsFromFirestore();
+      if (logs) {
+        setImportLogs(logs);
+      }
       
-      triggerToast(`🚚 Planilha processada e sincronizada na Nuvem (${mode === 'somar' ? 'Somada' : 'Substituída'})! total de ${dataset.length} viagens registradas na frota.`);
+      triggerToast("Dados importados e salvos com sucesso.");
     } catch (e: any) {
       console.warn("Firestore error during import sync:", e);
-      triggerToast(`⚠️ Salvou localmente para testes, mas foi recusado na Nuvem (sem login Admin Google no console).`);
+      const errMsg = e?.message || String(e);
+      if (errMsg.includes("resource-exhausted") || errMsg.includes("Quota") || errMsg.includes("quota")) {
+        setIsCloudOffline(true);
+        triggerToast("⚠️ Salvou localmente com sucesso, mas a Cota da Nuvem (Firestore) está excedida para hoje.");
+      } else {
+        triggerToast("⚠️ Salvou localmente para testes, mas foi recusado na Nuvem (sem login Admin Google no console).");
+      }
     }
   };
 
@@ -1012,6 +1307,11 @@ export default function Home() {
         if (meta) {
           setLastUpdate(meta);
         }
+
+        const logs = await fetchImportLogsFromFirestore();
+        if (logs) {
+          setImportLogs(logs);
+        }
         
         // Clear filters
         setSelectedFiliais([]);
@@ -1026,9 +1326,15 @@ export default function Home() {
         localStorage.removeItem('filters_status_meta');
         
         triggerToast("🧹 Todos os dados importados foram redefinidos para a base padrão na Nuvem com sucesso!");
-      } catch (e) {
+      } catch (e: any) {
         console.warn("Firestore error during reset sync:", e);
-        triggerToast("⚠️ Redefinido localmente para testes, mas recusado na Nuvem (sem login Admin Google).");
+        const errMsg = e?.message || String(e);
+        if (errMsg.includes("resource-exhausted") || errMsg.includes("Quota") || errMsg.includes("quota")) {
+          setIsCloudOffline(true);
+          triggerToast("⚠️ Redefinido localmente com sucesso, mas a Nuvem está Off-line por falta de cota.");
+        } else {
+          triggerToast("⚠️ Redefinido localmente para testes, mas recusado na Nuvem (sem login Admin Google).");
+        }
       }
     }
   };
@@ -1119,12 +1425,27 @@ export default function Home() {
 
     // Filter by Mês (Multi-select)
     if (selectedMeses && selectedMeses.length > 0) {
-      list = list.filter(v => selectedMeses.includes(v.mes || 'Maio'));
+      list = list.filter(v => {
+        const vMes = normalizeMonthName(v.mes || 'Maio');
+        return selectedMeses.some(sel => normalizeMonthName(sel) === vMes);
+      });
     }
 
     // Filter by Supervisor (Multi-select)
     if (selectedSupervisores && selectedSupervisores.length > 0) {
       list = list.filter(v => selectedSupervisores.includes(v.supervisao || 'Sem Supervisor'));
+    }
+
+    // Search by Driver
+    if (searchMotorista.trim().length > 0) {
+      const q = searchMotorista.toLowerCase();
+      list = list.filter(v => v.motorista && v.motorista.toLowerCase().includes(q));
+    }
+
+    // Search by Plate/Placa
+    if (searchPlaca.trim().length > 0) {
+      const q = searchPlaca.toUpperCase().trim();
+      list = list.filter(v => v.placa && v.placa.toUpperCase().includes(q));
     }
 
     // Direct header-level search query on vehicles, drivers and routes
@@ -1151,13 +1472,58 @@ export default function Home() {
     }
 
     return list;
-  }, [viagens, selectedFiliais, selectedAnos, selectedMeses, selectedSupervisores, statusMetaFilter, searchQuery]);
+  }, [viagens, selectedFiliais, selectedAnos, selectedMeses, selectedSupervisores, statusMetaFilter, searchQuery, searchMotorista, searchPlaca]);
 
   // Compute metrics dynamically
   const metrics = React.useMemo(() => computeExecutiveMetrics(activeViagens), [activeViagens]);
   const rankings = React.useMemo(() => computePlacaMetrics(activeViagens), [activeViagens]);
   const motoristas = React.useMemo(() => computeMotoristaMetrics(activeViagens), [activeViagens]);
   const rotas = React.useMemo(() => computeRouteMetrics(activeViagens), [activeViagens]);
+
+  // ADICIONAR VALIDAÇÃO: Exibir temporariamente no console
+  React.useEffect(() => {
+    const totalPlacasEncontradas = new Set(activeViagens.map(v => v.placa)).size;
+    
+    // Calculate category breakdown matching rankings
+    const c1 = rankings.filter(r => r.viagensCount === 1).length;
+    const c2 = rankings.filter(r => r.viagensCount === 2).length;
+    const c3 = rankings.filter(r => r.viagensCount === 3).length;
+    const c4 = rankings.filter(r => r.viagensCount === 4).length;
+    const c5 = rankings.filter(r => r.viagensCount >= 5).length;
+    const somaTotalCategorias = c1 + c2 + c3 + c4 + c5;
+
+    console.log("=== VALIDAÇÃO DE CONTEÚDO ===");
+    console.log("Total de registros da base:", viagens ? viagens.length : 0);
+    console.log("Total após filtros:", activeViagens ? activeViagens.length : 0);
+    console.log("Meses selecionados:", selectedMeses && selectedMeses.length > 0 ? selectedMeses : "Todos (Nenhum selecionado)");
+    console.log("Quantidade de placas encontradas:", totalPlacasEncontradas);
+    console.log("-----------------------------");
+    console.log("AUDITORIA DE FAIXAS DE VIAGENS");
+    console.log("Total de Placas:", rankings.length);
+    console.log("Placas com 1 viagem:", c1);
+    console.log("Placas com 2 viagens:", c2);
+    console.log("Placas com 3 viagens:", c3);
+    console.log("Placas com 4 viagens:", c4);
+    console.log("Placas com 5 ou mais viagens:", c5);
+    console.log("Soma Total:", somaTotalCategorias, "placas");
+    console.log("=============================");
+  }, [viagens, activeViagens, selectedMeses, rankings]);
+
+  const topRotasMaiorFaturamento = React.useMemo(() => {
+    return [...rotas].sort((a, b) => b.totalValue - a.totalValue).slice(0, 5);
+  }, [rotas]);
+
+  const topRotasPiorFaturamento = React.useMemo(() => {
+    return [...rotas].sort((a, b) => a.totalValue - b.totalValue).slice(0, 5);
+  }, [rotas]);
+
+  const topRotasMaiorViagens = React.useMemo(() => {
+    return [...rotas].sort((a, b) => b.totalTrips - a.totalTrips).slice(0, 5);
+  }, [rotas]);
+
+  const topRotasMenorViagens = React.useMemo(() => {
+    return [...rotas].sort((a, b) => a.totalTrips - b.totalTrips).slice(0, 5);
+  }, [rotas]);
 
   const selectedRouteDetails = React.useMemo(() => {
     if (!selectedRouteName) return null;
@@ -1294,8 +1660,8 @@ export default function Home() {
         }
       });
 
-      const metaGlobal = 90;
-      const metaAtingidaPercent = Math.round((g.viagensCount / metaGlobal) * 100);
+      const supervisorMeta = g.plates.size * 4;
+      const metaAtingidaPercent = supervisorMeta > 0 ? Math.round((g.viagensCount / supervisorMeta) * 100) : 0;
       const faturamentoTotal = g.faturamento;
       const despesaOficinaTotal = g.despesaOficina;
       const faturamentoLiquido = faturamentoTotal - despesaOficinaTotal;
@@ -1366,7 +1732,7 @@ export default function Home() {
 
     list.forEach(v => {
       const ano = Number(v.ano || 2026);
-      const mesNome = v.mes || 'Meticuloso';
+      const mesNome = normalizeMonthName(v.mes || 'Meticuloso');
       const mesNum = mapMes(mesNome);
       const key = `${ano}-${mesNum}`;
 
@@ -1374,7 +1740,7 @@ export default function Home() {
         groups[key] = {
           key,
           ano,
-          mesNome: v.mes || 'Maio',
+          mesNome,
           mesNum,
           faturamentoBruto: 0,
           despesaOficina: 0,
@@ -1474,14 +1840,41 @@ export default function Home() {
   // Effect to select default comparison key when the list loads or updates
   React.useEffect(() => {
     if (comparativoMensal.length > 0) {
-      if (!selectedComparisonKey || !comparativoMensal.some(c => c.key === selectedComparisonKey)) {
-        const lastKey = comparativoMensal[comparativoMensal.length - 1].key;
-        setTimeout(() => {
-          setSelectedComparisonKey(lastKey);
+      let targetKey = selectedComparisonKey;
+      let baseKey = comparisonBaseKey;
+      let targetUpdated = false;
+      let baseUpdated = false;
+
+      if (!targetKey || !comparativoMensal.some(c => c.key === targetKey)) {
+        targetKey = comparativoMensal[comparativoMensal.length - 1].key;
+        targetUpdated = true;
+      }
+
+      const activeIdx = comparativoMensal.findIndex(c => c.key === targetKey);
+      if (!baseKey || !comparativoMensal.some(c => c.key === baseKey)) {
+        if (activeIdx > 0) {
+          baseKey = comparativoMensal[activeIdx - 1].key;
+        } else {
+          baseKey = comparativoMensal[0].key;
+        }
+        baseUpdated = true;
+      }
+
+      if (targetUpdated || baseUpdated) {
+        const finalTargetKey = targetKey;
+        const finalBaseKey = baseKey;
+        const timer = setTimeout(() => {
+          if (targetUpdated) {
+            setSelectedComparisonKey(finalTargetKey);
+          }
+          if (baseUpdated) {
+            setComparisonBaseKey(finalBaseKey);
+          }
         }, 0);
+        return () => clearTimeout(timer);
       }
     }
-  }, [comparativoMensal, selectedComparisonKey]);
+  }, [comparativoMensal, selectedComparisonKey, comparisonBaseKey]);
 
   // Handle advanced logical filter queries
   const filteredAdvancedViagens = React.useMemo(() => {
@@ -1573,6 +1966,20 @@ export default function Home() {
           <p className="text-[10px] font-bold text-[#737686] uppercase tracking-widest leading-none mt-1">
             Painel de Produtividade
           </p>
+          
+          {isCloudOffline && (
+            <div className="mt-3 p-2.5 bg-amber-50 border border-amber-200/50 rounded-xl flex items-start gap-1.5 shadow-xs select-none">
+              <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse mt-0.5 shrink-0" />
+              <div className="flex flex-col gap-0.5 min-w-0">
+                <span className="text-[9px] font-black text-amber-800 uppercase tracking-widest leading-none">
+                  Modo Off-line Ativo
+                </span>
+                <span className="text-[8px] font-medium text-amber-600 leading-tight">
+                  Cota livre da nuvem excedida (Firestore Quota Exceeded). Operando localmente em sandbox com dados salvos.
+                </span>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Menu selections */}
@@ -1599,18 +2006,6 @@ export default function Home() {
           >
             <Truck className="w-4.5 h-4.5" />
             <span>Veículos</span>
-          </button>
-
-          <button
-            onClick={() => { updateActiveTab('motoristas'); updateSearchQuery(''); setIsSidebarOpen(false); }}
-            className={`w-full flex items-center gap-3.5 px-4 py-3 rounded-xl text-xs font-bold uppercase tracking-wider transition-all duration-150 ${
-              activeTab === 'motoristas'
-                ? 'bg-[#6cf8bb] text-[#00714d] shadow-sm font-extrabold'
-                : 'text-[#434655] hover:bg-gray-100 hover:text-[#0b1c30]'
-            }`}
-          >
-            <Users className="w-4.5 h-4.5" />
-            <span>Motoristas</span>
           </button>
 
           <button
@@ -1766,6 +2161,8 @@ export default function Home() {
                 setSelectedSupervisores([]);
                 setStatusMetaFilter('ALL');
                 setSearchQuery('');
+                setSearchMotorista('');
+                setSearchPlaca('');
                 setCurrentPage(1);
 
                 // Clear storage keys
@@ -1999,60 +2396,21 @@ export default function Home() {
                     </h2>
                     <h3 className="text-xl font-bold mt-1 text-[#0b1c30]">Produtividade Geral da Frota</h3>
                   </div>
-                  <div className="text-xs font-bold text-[#434655] flex items-center gap-1.5 bg-[#eff4ff] px-3 py-1.5 rounded-lg border border-[#c3c6d7]/30 shrink-0">
-                    <Sparkles className="w-3.5 h-3.5 text-[#004ac6]" />
-                    Total de {activeViagens.length} Conhecimentos no dashboard
+
+                  {/* Compact Base de Dados Status Indicator */}
+                  <div className="flex items-center gap-2 bg-white border border-[#c3c6d7]/40 px-2.5 py-1 rounded-xl shadow-3xs text-[10px] font-bold text-slate-600 shrink-0">
+                    <span className="w-1.5 h-1.5 rounded-full bg-[#00714d] animate-pulse" />
+                    <span className="font-extrabold text-[#00714d] tracking-wider uppercase pr-1.5 border-r border-slate-200">Sincronizado</span>
+                    <span className="text-[#004ac6] font-semibold pl-0.5">
+                      Última atualização: {lastUpdate ? lastUpdate.lastUploadedAt.replace(' às', '') : '01/06/2026 16:10'}
+                    </span>
                   </div>
                 </header>
 
-                {/* Card de Controle: Última Atualização */}
-                <div id="control-card-last-update" className="bg-[#eff4ff]/60 border border-[#004ac6]/20 p-5 rounded-2xl flex flex-col lg:flex-row lg:items-center lg:justify-between gap-5 transition-all hover:bg-[#eff4ff]/80">
-                  <div className="flex items-start gap-4">
-                    <div className="p-3 bg-[#004ac6] text-white rounded-xl shrink-0 mt-0.5 shadow-sm">
-                      <FileSpreadsheet className="w-5.5 h-5.5" />
-                    </div>
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-2">
-                        <span className="text-[9px] font-extrabold tracking-widest text-[#004ac6] uppercase bg-white px-2 py-0.5 rounded-md border border-[#004ac6]/10 shadow-3xs">
-                          Controle de Dados Ativo
-                        </span>
-                        <span className="inline-flex items-center gap-1 text-[9px] font-bold text-[#00714d] bg-[#6cf8bb]/30 px-2 py-0.5 rounded-md">
-                          <span className="w-1.5 h-1.5 rounded-full bg-secondary animate-pulse" /> Sincronizado
-                        </span>
-                      </div>
-                      <h4 className="text-sm font-black text-[#0b1c30] flex items-center gap-2">
-                        Base de Dados Persistente (Firestore Cloud)
-                      </h4>
-                      <p className="text-[11px] text-[#434655] font-semibold leading-relaxed max-w-2xl">
-                        Os dados operacionais de faturamento da frota são lidos diretamente do banco e persistem de forma idêntica para todos os usuários autorizados. Não dependem de caches locais.
-                      </p>
-                    </div>
-                  </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 bg-white p-4 rounded-xl border border-[#c3c6d7]/25 divide-y sm:divide-y-0 sm:divide-x divide-gray-100 min-w-full lg:min-w-[480px]">
-                    <div className="text-left sm:px-3.5">
-                      <span className="text-[9px] font-bold text-[#737686] uppercase tracking-wider block">Última Atualização</span>
-                      <span className="text-xs font-black text-[#0b1c30] block mt-1">
-                        {lastUpdate ? lastUpdate.lastUploadedAt : '01/06/2026 às 16:10'}
-                      </span>
-                    </div>
-                    <div className="text-left sm:px-3.5 pt-2 sm:pt-0">
-                      <span className="text-[9px] font-bold text-[#737686] uppercase tracking-wider block">Usuário Responsável</span>
-                      <span className="text-xs font-black text-[#0b1c30] block mt-1 truncate max-w-[140px]" title={lastUpdate ? lastUpdate.uploaderName : 'anderson_admin@mateus.com'}>
-                        {lastUpdate ? (lastUpdate.uploaderName.includes('@') ? lastUpdate.uploaderName.split('@')[0] : lastUpdate.uploaderName) : 'Administrador'}
-                      </span>
-                    </div>
-                    <div className="text-left sm:px-3.5 pt-2 sm:pt-0">
-                      <span className="text-[9px] font-bold text-[#737686] uppercase tracking-wider block">Planilha Fonte</span>
-                      <span className="text-[11px] font-black text-[#004ac6] block mt-1 truncate max-w-[140px]" title={lastUpdate ? lastUpdate.fileName : 'Produtividade_Maio_2026.xlsx'}>
-                        {lastUpdate ? lastUpdate.fileName : 'Produtividade_Maio_2026.xlsx'}
-                      </span>
-                    </div>
-                  </div>
-                </div>
 
                 {/* KPI metrics row */}
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-4 xl:grid-cols-8 gap-4">
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-9 gap-4">
                   {/* KPI 1: Faturamento */}
                   <div className="bg-white border border-[#c3c6d7]/30 p-4 rounded-xl shadow-xs group hover:border-[#004ac6] transition-colors flex flex-col justify-between">
                     <div>
@@ -2108,6 +2466,24 @@ export default function Home() {
                     </div>
                     <p className="text-[9px] text-[#737686] mt-3 font-semibold uppercase tracking-wider">
                       Realizadas no período
+                    </p>
+                  </div>
+
+                  {/* KPI: KM TOTAL RODADO */}
+                  <div className="bg-white border border-[#c3c6d7]/30 p-4 rounded-xl shadow-xs flex flex-col justify-between">
+                    <div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-[11px] font-bold text-[#737686] uppercase">KM Total Rodado</span>
+                        <span className="text-[10px] font-bold text-[#004ac6] bg-[#eff4ff] px-1.5 py-0.5 rounded-sm flex items-center gap-0.5">
+                          <Route className="w-2.5 h-2.5" /> Km
+                        </span>
+                      </div>
+                      <p className="text-2xl font-black text-[#0b1c30] tracking-tight mt-2.5">
+                        {metrics.kmRodadoTotal.toLocaleString('pt-BR')}
+                      </p>
+                    </div>
+                    <p className="text-[9px] text-[#737686] mt-3 font-semibold uppercase tracking-wider">
+                      Total de Km rodado
                     </p>
                   </div>
 
@@ -2194,7 +2570,7 @@ export default function Home() {
                   <div className="col-span-12 md:col-span-6 lg:col-span-3 bg-white border border-[#c3c6d7]/30 rounded-xl p-6 shadow-xs flex flex-col justify-between min-h-[352px]">
                     <div>
                       <h4 className="text-xs font-bold text-[#0b1c30]">Meta Global da Frota</h4>
-                      <p className="text-[11px] text-[#737686] mt-1">Progresso total • 90 viagens/mês</p>
+                      <p className="text-[11px] text-[#737686] mt-1">Progresso total • {metrics.metaGlobal} viagens/mês</p>
                     </div>
 
                     <div className="relative flex flex-col items-center justify-center my-5 h-36">
@@ -2381,7 +2757,7 @@ export default function Home() {
                                   transition={{ type: 'spring', stiffness: 45 }}
                                   className={`h-full ${isHighPerf ? 'bg-[#004ac6]' : 'bg-[#ab0b1c]'} rounded-r-md group-hover:opacity-90`}
                                 />
-                                <span className={`absolute right-4 text-[10.5px] font-black ${isHighPerf ? 'text-[#004ac6]' : 'text-[#ab0b1c]'}`}>
+                                <span className="absolute right-4 text-[10.5px] font-black text-black">
                                   R$ {formattedVal}
                                 </span>
                               </div>
@@ -2431,346 +2807,772 @@ export default function Home() {
                       })}
                     </div>
 
-                    <button
-                      onClick={() => { updateActiveTab('motoristas'); triggerToast("🧑‍✈️ Portal de motoristas carregado!"); }}
-                      className="w-full py-2 bg-[#eff4ff] text-[#004ac6] text-xs font-bold rounded-lg hover:bg-[#004ac6]/10 transition-colors cursor-pointer mt-4"
-                    >
-                      Ver Todos os Motoristas
-                    </button>
+
                   </div>
                 </div>
               </motion.div>
             )}
 
             {/* View tab: Veículos (Unique license plates with search highlighted) */}
-            {activeTab === 'vehiculos' && (
-              <motion.div
-                key="vehiculos"
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -10 }}
-                className="space-y-6"
-              >
-                <header className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-                  <div>
-                    <h2 className="text-[10px] font-extrabold text-[#737686] uppercase tracking-widest leading-none">
-                      Frotas de Distribuição
-                    </h2>
-                    <h3 className="text-xl font-bold mt-1 text-[#0b1c30]">Placas e Desempenho Operacional</h3>
-                  </div>
-                  <button
-                    onClick={() => handleDownloadPDF('Relatorio_Frotas')}
-                    className="border border-[#c3c6d7] text-[#0b1c30] hover:bg-gray-50 px-4 py-2 rounded-xl text-xs font-extrabold flex items-center gap-2 w-full sm:w-auto justify-center cursor-pointer active:scale-95 transition-all"
-                  >
-                    <Download className="w-4.5 h-4.5" /> Exportar Dados das Placas
-                  </button>
-                </header>
+            {activeTab === 'vehiculos' && (() => {
+              // Local variables and calculations on rendering
+              const totalPlacas = rankings.length;
+              const dentroMetaCount = rankings.filter(r => r.viagensCount >= 4).length;
+              const foraMetaCount = rankings.filter(r => r.viagensCount < 4).length;
+              const dentroMetaPercent = totalPlacas > 0 ? Math.round((dentroMetaCount / totalPlacas) * 100) : 0;
+              const foraMetaPercent = totalPlacas > 0 ? Math.round((foraMetaCount / totalPlacas) * 100) : 0;
 
-                {/* Painel de Ranking de Supervisores */}
-                <div className="bg-white border border-[#c3c6d7]/30 rounded-2xl p-6 shadow-xs">
-                  <div className="flex justify-between items-center mb-4">
+              // Trips-based target metrics
+              const tripsDentroCount = rankings.filter(r => r.viagensCount >= 4).reduce((sum, r) => sum + r.viagensCount, 0);
+              const tripsForaCount = rankings.filter(r => r.viagensCount < 4).reduce((sum, r) => sum + r.viagensCount, 0);
+              const totalTripsCount = tripsDentroCount + tripsForaCount;
+              const tripsDentroPercent = totalTripsCount > 0 ? Math.round((tripsDentroCount / totalTripsCount) * 100) : 0;
+              const tripsForaPercent = totalTripsCount > 0 ? 100 - tripsDentroPercent : 0;
+
+              const totalTrips = activeViagens.length;
+              const mediaViagens = totalPlacas > 0 ? (totalTrips / totalPlacas).toFixed(1).replace('.', ',') : '0';
+
+              const melhorPlaca = rankings[0]?.placa || 'N/A';
+              const melhorPlacaViagens = rankings[0]?.viagensCount || 0;
+
+              // Find top faturamento plate
+              const sortedByFat = [...rankings].sort((a, b) => b.faturamentoTotal - a.faturamentoTotal);
+              const highestRevenuePlate = sortedByFat[0];
+              const maiorFaturamentoValue = highestRevenuePlate?.faturamentoTotal || 0;
+              const maiorFaturamentoPlaca = highestRevenuePlate?.placa || 'N/A';
+
+              // Format compact format (e.g. 1.191.700 -> R$ 1.191,7k)
+              const formatCargoCompactLocal = (val: number) => {
+                const kVal = val / 1000;
+                return `R$ ${kVal.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}k`;
+              };
+
+              // Faturamento por status da meta
+              const faturamentoDentro = rankings.filter(r => r.viagensCount >= 4).reduce((sum, r) => sum + r.faturamentoTotal, 0);
+              const faturamentoFora = rankings.filter(r => r.viagensCount < 4).reduce((sum, r) => sum + r.faturamentoTotal, 0);
+              const totalFaturamentoStatus = faturamentoDentro + faturamentoFora;
+
+              const percentDentroFat = totalFaturamentoStatus > 0 ? (faturamentoDentro / totalFaturamentoStatus) * 100 : 0;
+              const percentForaFat = totalFaturamentoStatus > 0 ? (faturamentoFora / totalFaturamentoStatus) * 100 : 0;
+
+              // Distribution of trips counts
+              const c1 = rankings.filter(r => r.viagensCount === 1).length;
+              const c2 = rankings.filter(r => r.viagensCount === 2).length;
+              const c3 = rankings.filter(r => r.viagensCount === 3).length;
+              const c4 = rankings.filter(r => r.viagensCount === 4).length;
+              const c5 = rankings.filter(r => r.viagensCount >= 5).length;
+              const totalForDist = rankings.length || 1;
+
+              const barData = [
+                { label: '1 viagem', count: c1, percent: ((c1 / totalForDist) * 100).toFixed(1) },
+                { label: '2 viagens', count: c2, percent: ((c2 / totalForDist) * 100).toFixed(1) },
+                { label: '3 viagens', count: c3, percent: ((c3 / totalForDist) * 100).toFixed(1) },
+                { label: '4 viagens', count: c4, percent: ((c4 / totalForDist) * 100).toFixed(1) },
+                { label: '5 ou mais', count: c5, percent: ((c5 / totalForDist) * 100).toFixed(1) },
+              ];
+
+              const totalForDistSafe = totalForDist || 1;
+              const p1 = (c1 / totalForDistSafe) * 100;
+              const p2 = (c2 / totalForDistSafe) * 100;
+              const p3 = (c3 / totalForDistSafe) * 100;
+              const p4 = (c4 / totalForDistSafe) * 100;
+              const p5 = (c5 / totalForDistSafe) * 100;
+
+              const s1 = (p1 / 100) * 50.265;
+              const s2 = (p2 / 100) * 50.265;
+              const s3 = (p3 / 100) * 50.265;
+              const s4 = (p4 / 100) * 50.265;
+              const s5 = (p5 / 100) * 50.265;
+
+              const maxCount = Math.max(...barData.map(d => d.count), 1);
+              const maxTick = Math.ceil(maxCount / 10) * 10 || 10;
+              const ticks = [maxTick, Math.round(maxTick * 0.8), Math.round(maxTick * 0.6), Math.round(maxTick * 0.4), Math.round(maxTick * 0.2), 0];
+
+              // Paginated Rankings table
+              const filteredRankings = rankings.filter(r => {
+                if (!vehiculosSearchQuery.trim()) return true;
+                return r.placa.toLowerCase().includes(vehiculosSearchQuery.toLowerCase());
+              });
+
+              const rankingsPageSize = 10;
+              const maxRankingsPage = Math.max(1, Math.ceil(filteredRankings.length / rankingsPageSize));
+              // Clamp page index if it goes out of bounds due to filters
+              const currentPageClamped = Math.min(vehiculosPage, maxRankingsPage);
+              const paginatedRankings = filteredRankings.slice((currentPageClamped - 1) * rankingsPageSize, currentPageClamped * rankingsPageSize);
+
+              return (
+                <motion.div
+                  key="vehiculos"
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -10 }}
+                  className="space-y-6"
+                >
+                  {/* Dashboard Tab Title Header */}
+                  <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                     <div>
-                      <h4 className="text-sm font-black text-[#0b1c30] flex items-center gap-2">
-                        🏆 Ranking de Produtividade dos Supervisores
-                      </h4>
-                      <p className="text-[11px] text-[#737686] mt-1 font-bold">
-                        Calculado em tempo real com base na Meta Global do Supervisor de 90 viagens/mês. Passe o mouse sobre o supervisor para detalhamento completo.
-                      </p>
+                      <h2 className="text-[10px] font-extrabold text-[#737686] uppercase tracking-widest leading-none">
+                        FROTA E PRODUTIVIDADE
+                      </h2>
+                      <h3 className="text-xl font-bold mt-1 text-[#0b1c30]">DESEMPENHO DAS PLACAS</h3>
+                      <p className="text-xs text-[#737686] mt-0.5">Análise geral de viagens por placa</p>
                     </div>
                   </div>
 
-                  <div className="overflow-x-auto rounded-xl border border-[#c3c6d7]/20">
-                    <table className="w-full text-left border-collapse">
-                      <thead>
-                        <tr className="border-b border-[#c3c6d7]/30 text-[#434655] text-[10px] font-extrabold uppercase tracking-wider bg-[#f8f9ff]">
-                          <th className="px-4 py-3">Supervisor</th>
-                          <th className="px-4 py-3 text-center">Veículos</th>
-                          <th className="px-4 py-3 text-center">Viagens</th>
-                          <th className="px-4 py-3 text-center">Dentro Meta</th>
-                          <th className="px-4 py-3 text-center">Fora Meta</th>
-                          <th className="px-4 py-3 text-right">Meta (%)</th>
-                          <th className="px-4 py-3 text-right">Faturamento Bruto</th>
-                          <th className="px-4 py-3 text-right">Despesa Oficina</th>
-                          <th className="px-4 py-3 text-right">Faturamento Líquido</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-gray-100 text-xs font-bold font-sans">
-                        {supervisorRankings.length === 0 ? (
-                          <tr>
-                            <td colSpan={9} className="text-center py-8 text-xs text-[#737686]">
-                              Nenhum supervisor correspondente aos filtros selecionados.
-                            </td>
-                          </tr>
-                        ) : (
-                          supervisorRankings.map((sup, pos) => {
-                            const medal = pos === 0 ? "🥇" : pos === 1 ? "🥈" : pos === 2 ? "🥉" : `${pos + 1}º`;
-                            return (
-                              <tr key={sup.supervisor} className="hover:bg-gray-50/50 transition-colors">
-                                <td className="px-4 py-3.5 text-[#0b1c30]">
-                                  <SupervisorTooltip supData={sup}>
-                                    <div className="flex items-center gap-2 cursor-help select-none">
-                                      <span className="text-sm font-black shrink-0">{medal}</span>
-                                      <span className="uppercase font-extrabold truncate max-w-[125px] inline-block">{sup.supervisor}</span>
-                                    </div>
-                                  </SupervisorTooltip>
-                                </td>
-                                <td className="px-4 py-3.5 text-center text-[#434655]">
-                                  {sup.qtdVeiculos}
-                                </td>
-                                <td className="px-4 py-3.5 text-center text-[#0b1c30]">
-                                  {sup.qtdViagens}
-                                </td>
-                                <td className="px-4 py-3.5 text-center">
-                                  <span className="bg-[#6cf8bb]/15 px-2.5 py-1 rounded text-[10px] font-extrabold text-[#00714d] border border-[#6cf8bb]/30 whitespace-nowrap">
-                                    {sup.placasDentroMeta} plac{sup.placasDentroMeta === 1 ? 'a' : 'as'}
-                                  </span>
-                                </td>
-                                <td className="px-4 py-3.5 text-center">
-                                  <span className="bg-rose-500/10 px-2.5 py-1 rounded text-[10px] font-extrabold text-[#ab0b1c] border border-rose-500/20 whitespace-nowrap">
-                                    {sup.placasForaMeta} plac{sup.placasForaMeta === 1 ? 'a' : 'as'}
-                                  </span>
-                                </td>
-                                <td className="px-4 py-3.5 text-right font-black">
-                                  <div className="flex items-center justify-end gap-2">
-                                    <span className={`text-[11px] font-black ${
-                                      sup.metaAtingidaPercent >= 100 ? 'text-[#00714d]' : 'text-error'
-                                    }`}>
-                                      {sup.metaAtingidaPercent}%
-                                    </span>
-                                  </div>
-                                  <div className="w-20 bg-gray-100 h-1 rounded-full overflow-hidden ml-auto mt-1">
-                                    <div
-                                      className={`h-full ${sup.metaAtingidaPercent >= 100 ? 'bg-[#00714d]' : 'bg-error'}`}
-                                      style={{ width: `${Math.min(100, sup.metaAtingidaPercent)}%` }}
-                                    />
-                                  </div>
-                                </td>
-                                <td className="px-4 py-3.5 text-right font-extrabold text-[#434655] whitespace-nowrap">
-                                  R$ {sup.faturamentoTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                                </td>
-                                <td className="px-4 py-3.5 text-right font-extrabold text-rose-600 whitespace-nowrap">
-                                  R$ {sup.despesaOficina.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                                </td>
-                                <td className="px-4 py-3.5 text-right font-black text-[#004ac6] whitespace-nowrap">
-                                  R$ {sup.faturamentoLiquido.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                                </td>
-                              </tr>
-                            );
-                          })
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-
-                {/* Grid de Veículos */}
-                <div>
-                  <h4 className="text-xs font-extrabold text-[#737686] uppercase tracking-wider mb-4">
-                    Desempenho por Placas Individuais ({rankings.length} veículo{rankings.length === 1 ? '' : 's'})
-                  </h4>
-                  
-                  {rankings.length === 0 ? (
-                    <div className="bg-white rounded-2xl p-12 text-center border border-[#c3c6d7]/30 text-[#737686] font-bold text-xs">
-                      Nenhum veículo corresponde aos filtros ou busca ativa.
+                  {/* SEVEN PILL KPI GRID */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-7 gap-4">
+                    {/* KPI 1: TOTAL DE PLACAS */}
+                    <div className="bg-white border border-[#c3c6d7]/30 rounded-2xl p-4.5 xl:p-5 flex items-center gap-3.5 shadow-xs transition-all duration-300 ease-in-out hover:scale-[1.03] hover:-translate-y-1 hover:shadow-lg hover:border-[#004ac6]/40 cursor-pointer">
+                      <div className="w-12 h-12 rounded-full bg-blue-50 flex items-center justify-center shrink-0 border border-blue-100">
+                        <Truck className="w-6 h-6 text-[#004ac6]" />
+                      </div>
+                      <div>
+                        <p className="text-[10px] text-[#737686] font-bold uppercase tracking-wider leading-none">TOTAL DE PLACAS</p>
+                        <p className="text-3xl font-black text-[#0b1c30] mt-2.5 leading-none">{totalPlacas}</p>
+                      </div>
                     </div>
-                  ) : (
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                      {rankings.map((r, idx) => {
-                        const isMetaMet = r.viagensCount >= 4;
-                        const associatedViagens = viagens.filter(v => v.placa === r.placa);
-                        const lastRoute = associatedViagens[0]?.rota || 'Sem rota programada';
 
-                        return (
-                          <PlateTooltip key={r.placa} plateData={r}>
-                            <div className="bg-white border border-[#c3c6d7]/30 rounded-2xl p-6 shadow-xs flex flex-col justify-between hover:border-[#004ac6] transition-all h-full select-none">
-                              <div className="space-y-4">
-                                <div className="flex justify-between items-start">
-                                  <span className="text-sm font-black text-[#0b1c30] tracking-wide bg-[#eff4ff] px-2.5 py-1 rounded-lg border border-[#c3c6d7]/30 font-mono">
-                                    {r.placa}
-                                  </span>
-                                  <span className={`text-[10px] font-extrabold px-2 py-0.5 rounded-full ${
-                                    isMetaMet ? 'bg-[#6cf8bb]/20 text-[#00714d]' : 'bg-[#ffdad6] text-[#ab0b1c]'
-                                  }`}>
-                                    {isMetaMet ? '✓ META DENTRO' : '⚠ FORA DA META'}
-                                  </span>
-                                </div>
-
-                                <div>
-                                  <p className="text-[9px] text-[#737686] font-bold uppercase tracking-wider">Última Rota Detectada</p>
-                                  <p className="text-xs font-bold text-[#0b1c30] truncate mt-1">{lastRoute}</p>
-                                </div>
-
-                                <div className="grid grid-cols-2 gap-3 bg-[#f8f9ff] p-3 rounded-xl border border-[#c3c6d7]/20">
-                                  <div>
-                                    <p className="text-[9px] text-[#737686] font-extrabold">FATURAMENTO</p>
-                                    <p className="text-xs font-black text-[#004ac6] mt-0.5">
-                                      R$ {(r.faturamentoTotal / 1000).toLocaleString('pt-BR', { maximumFractionDigits: 1 })}k
-                                    </p>
-                                  </div>
-                                  <div>
-                                    <p className="text-[9px] text-[#737686] font-extrabold">VIAGENS</p>
-                                    <p className="text-xs font-black text-[#0b1c30] mt-0.5">
-                                      {r.viagensCount}/4 viagens
-                                    </p>
-                                  </div>
-                                </div>
-                              </div>
-
-                              <div className="mt-5 space-y-2">
-                                <div className="flex justify-between text-[11px] font-bold text-[#434655]">
-                                  <span>Meta Atingida</span>
-                                  <span>{r.percentMeta}%</span>
-                                </div>
-                                <div className="w-full bg-gray-100 h-1.5 rounded-full overflow-hidden">
-                                  <div
-                                    className={`h-full ${isMetaMet ? 'bg-[#00714d]' : 'bg-error'}`}
-                                    style={{ width: `${Math.min(100, r.percentMeta)}%` }}
-                                  />
-                                </div>
-                              </div>
-                            </div>
-                          </PlateTooltip>
-                        );
-                      })}
+                    {/* KPI 2: DENTRO DA META */}
+                    <div className="bg-white border border-[#c3c6d7]/30 rounded-2xl p-4.5 xl:p-5 flex items-center gap-3.5 shadow-xs transition-all duration-300 ease-in-out hover:scale-[1.03] hover:-translate-y-1 hover:shadow-lg hover:border-[#10b981]/40 cursor-pointer">
+                      <div className="w-12 h-12 rounded-full bg-emerald-50 flex items-center justify-center shrink-0 border border-emerald-100">
+                        <CheckCircle2 className="w-6 h-6 text-[#10b981]" />
+                      </div>
+                      <div>
+                        <p className="text-[10px] text-[#737686] font-bold uppercase tracking-wider leading-none">DENTRO DA META</p>
+                        <p className="text-3xl font-black text-[#10b981] mt-2.5 leading-none">
+                          {dentroMetaCount} <span className="text-xs text-[#737686] font-bold block mt-1">({dentroMetaPercent}%)</span>
+                        </p>
+                      </div>
                     </div>
-                  )}
-                </div>
-              </motion.div>
-            )}
 
-            {/* View tab: Motoristas (Driver individual performance report view with photo headers, targets) */}
-            {activeTab === 'motoristas' && (
-              <motion.div
-                key="motoristas"
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -10 }}
-                className="space-y-6"
-              >
-                <header className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-                  <div>
-                    <h2 className="text-[10px] font-extrabold text-[#737686] uppercase tracking-widest leading-none">
-                      Performance Individual
-                    </h2>
-                    <h3 className="text-xl font-bold mt-1 text-[#0b1c30]">Ranking de Produtividade dos Motoristas</h3>
-                  </div>
-                  <button
-                    onClick={() => handleDownloadPDF('Relatorio_Faturamento_Motoristas')}
-                    className="bg-[#004ac6] text-white px-5 py-2.5 rounded-xl text-xs font-extrabold flex items-center gap-2 hover:bg-opacity-95 shadow-md w-full sm:w-auto justify-center"
-                  >
-                    <Download className="w-4 h-4" /> Exportar PDF da Escala
-                  </button>
-                </header>
+                    {/* KPI 3: FORA DA META */}
+                    <div className="bg-white border border-[#c3c6d7]/30 rounded-2xl p-4.5 xl:p-5 flex items-center gap-3.5 shadow-xs transition-all duration-300 ease-in-out hover:scale-[1.03] hover:-translate-y-1 hover:shadow-lg hover:border-rose-300 cursor-pointer">
+                      <div className="w-12 h-12 rounded-full bg-rose-50 flex items-center justify-center shrink-0 border border-rose-100">
+                        <AlertTriangle className="w-6 h-6 text-rose-500" />
+                      </div>
+                      <div>
+                        <p className="text-[10px] text-[#737686] font-bold uppercase tracking-wider leading-none">FORA DA META</p>
+                        <p className="text-3xl font-black text-rose-500 mt-2.5 leading-none">
+                          {foraMetaCount} <span className="text-xs text-[#737686] font-bold block mt-1">({foraMetaPercent}%)</span>
+                        </p>
+                      </div>
+                    </div>
 
-                {/* Driver executive mini dashboard */}
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-4">
-                  <div className="bg-white p-4 border border-[#c3c6d7]/30 rounded-xl">
-                    <span className="text-[9px] text-[#737686] font-bold uppercase tracking-wider">Faturamento Total</span>
-                    <p className="text-lg font-black text-[#004ac6] mt-1.5">
-                      R$ {metrics.faturamentoTotal.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}
-                    </p>
-                  </div>
-                  <div className="bg-white p-4 border border-[#c3c6d7]/30 rounded-xl">
-                    <span className="text-[9px] text-[#737686] font-bold uppercase tracking-wider">Total de Viagens</span>
-                    <p className="text-lg font-black text-[#0b1c30] mt-1.5">{metrics.totalViagens}</p>
-                  </div>
-                  <div className="bg-white p-4 border border-[#c3c6d7]/30 rounded-xl">
-                    <span className="text-[9px] text-[#737686] font-bold uppercase tracking-wider">Motoristas Ativos</span>
-                    <p className="text-lg font-black text-[#0b1c30] mt-1.5">{motoristas.length}</p>
-                  </div>
-                  <div className="bg-white p-4 border border-[#c3c6d7]/30 rounded-xl border-l-4 border-l-secondary">
-                    <span className="text-[9px] text-secondary font-bold uppercase tracking-wider">Metas Concluídas</span>
-                    <p className="text-lg font-black text-secondary mt-1.5">
-                      {motoristas.filter(m => m.viagensRealizadas >= m.metaViagens).length}
-                    </p>
-                  </div>
-                  <div className="bg-white p-4 border border-[#c3c6d7]/30 rounded-xl border-l-4 border-l-error">
-                    <span className="text-[9px] text-error font-bold uppercase tracking-wider">Fora da Meta</span>
-                    <p className="text-lg font-black text-error mt-1.5">
-                      {motoristas.filter(m => m.viagensRealizadas < m.metaViagens).length}
-                    </p>
-                  </div>
-                </div>
+                    {/* KPI 4: MÉDIA DE VIAGENS */}
+                    <div className="bg-[#fffdf5] border border-amber-200/50 rounded-2xl p-4.5 xl:p-5 flex items-center gap-3.5 shadow-xs transition-all duration-300 ease-in-out hover:scale-[1.03] hover:-translate-y-1 hover:shadow-lg hover:border-amber-400 cursor-pointer">
+                      <div className="w-12 h-12 rounded-full bg-amber-50 flex items-center justify-center shrink-0 border border-amber-100">
+                        <TrendingUp className="w-6 h-6 text-amber-500" />
+                      </div>
+                      <div>
+                        <p className="text-[10px] text-[#737686] font-bold uppercase tracking-wider leading-none">MÉDIA DE VIAGENS</p>
+                        <p className="text-3xl font-black text-[#0b1c30] mt-2.5 leading-none">
+                          {mediaViagens} <span className="text-[10px] text-[#737686] font-semibold block mt-1 whitespace-nowrap">/ placa</span>
+                        </p>
+                      </div>
+                    </div>
 
-                {/* Grid performance card list */}
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                  {motoristas.map((m) => {
-                    const isMetaAtingida = m.viagensRealizadas >= m.metaViagens;
-                    return (
-                      <div
-                        key={m.nome}
-                        className="bg-white p-6 rounded-2xl border border-[#c3c6d7]/30 flex flex-col justify-between hover:shadow-md hover:border-[#004ac6] transition-all group cursor-pointer"
-                        onClick={() => setSelectedDriverName(m.nome)}
-                      >
-                        <div className="space-y-5">
-                          {/* Card driver header with premium tags */}
-                          <div className="flex items-start gap-4">
-                            <div className="relative">
-                              <img
-                                alt={m.nome}
-                                src={getDriverAvatar(m.nome)}
-                                className="w-14 h-14 rounded-full object-cover border-2 border-secondary shadow-sm"
-                              />
-                              {isMetaAtingida && (
-                                <div className="absolute -top-1 -right-1 bg-secondary-container text-on-secondary-container w-5.5 h-5.5 rounded-full flex items-center justify-center border border-white shadow-xs">
-                                  <Award className="w-3 h-3 text-[#00714d]" />
-                                </div>
-                              )}
-                            </div>
+                    {/* KPI 5: KM TOTAL RODADO */}
+                    <div className="bg-[#f4f7ff] border border-indigo-100/50 rounded-2xl p-4.5 xl:p-5 flex items-center gap-3.5 shadow-xs transition-all duration-300 ease-in-out hover:scale-[1.03] hover:-translate-y-1 hover:shadow-lg hover:border-indigo-400 cursor-pointer">
+                      <div className="w-12 h-12 rounded-full bg-indigo-50 flex items-center justify-center shrink-0 border border-indigo-100">
+                        <Route className="w-6 h-6 text-indigo-600" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-[10px] text-[#737686] font-bold uppercase tracking-wider leading-none">KM TOTAL RODADO</p>
+                        <p className="text-2xl font-black text-[#0b1c30] mt-2 leading-none">
+                          {rankings.reduce((sum, r) => sum + (r.kmRodadoTotal || 0), 0).toLocaleString('pt-BR')}
+                        </p>
+                        <p className="text-[11px] text-[#737686] font-extrabold mt-1.5 leading-none">Km rodados total</p>
+                      </div>
+                    </div>
 
-                            <div className="flex-1">
-                              <h4 className="text-sm font-extrabold text-[#0b1c30] group-hover:text-[#004ac6] transition-colors leading-tight">
-                                {m.nome}
-                              </h4>
-                              <p className="text-[10px] text-[#737686] mt-0.5 font-semibold">ID: {m.id} • {m.categoria}</p>
-                              <div className="flex gap-2 mt-1.5">
-                                <span className={`px-2 py-0.5 rounded text-[9px] font-extrabold uppercase tracking-wide ${
-                                  isMetaAtingida
-                                    ? 'bg-[#6cf8bb]/20 text-[#00714d]'
-                                    : 'bg-[#ffdad6] text-[#ab0b1c]'
-                                }`}>
-                                  {isMetaAtingida ? '✓ Meta Atingida' : '⚠ Fora da Meta'}
-                                </span>
-                              </div>
-                            </div>
-                          </div>
+                    {/* KPI 6: MELHOR PLACA */}
+                    <div className="bg-white border border-[#c3c6d7]/30 rounded-2xl p-4.5 xl:p-5 flex items-center gap-3.5 shadow-xs transition-all duration-300 ease-in-out hover:scale-[1.03] hover:-translate-y-1 hover:shadow-lg hover:border-purple-300 cursor-pointer">
+                      <div className="w-12 h-12 rounded-full bg-purple-50 flex items-center justify-center shrink-0 border border-purple-100">
+                        <Award className="w-6 h-6 text-purple-600" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-[10px] text-[#737686] font-bold uppercase tracking-wider leading-none">MELHOR PLACA</p>
+                        <p className="text-2xl font-black text-purple-700 mt-2 leading-none" title={melhorPlaca}>{melhorPlaca}</p>
+                        <p className="text-[11px] text-[#737686] font-extrabold mt-1.5 leading-none">{melhorPlacaViagens} viagens</p>
+                      </div>
+                    </div>
 
-                          {/* Driver breakdown numbers */}
-                          <div className="grid grid-cols-2 gap-4">
-                            <div className="bg-gray-50 p-3 rounded-xl border border-[#c3c6d7]/20">
-                              <p className="text-[9px] text-[#737686] font-bold uppercase tracking-wider">Faturamento</p>
-                              <p className="text-xs font-black text-[#004ac6] mt-0.5">
-                                R$ {m.faturamento.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                              </p>
-                            </div>
-                            <div className="bg-gray-50 p-3 rounded-xl border border-[#c3c6d7]/20">
-                              <p className="text-[9px] text-[#737686] font-bold uppercase tracking-wider">Viagens</p>
-                              <p className="text-xs font-black text-[#0b1c30] mt-0.5">
-                                {m.viagensRealizadas} / {m.metaViagens} meta
-                              </p>
-                            </div>
-                          </div>
+                    {/* KPI 7: MAIOR FATURAMENTO */}
+                    <div className="bg-white border border-[#c3c6d7]/30 rounded-2xl p-4.5 xl:p-5 flex items-center gap-3.5 shadow-xs transition-all duration-300 ease-in-out hover:scale-[1.03] hover:-translate-y-1 hover:shadow-lg hover:border-sky-300 cursor-pointer">
+                      <div className="w-12 h-12 rounded-full bg-sky-50 flex items-center justify-center shrink-0 border border-sky-100">
+                        <Sparkles className="w-6 h-6 text-[#004ac6]" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-[10px] text-[#737686] font-bold uppercase tracking-wider leading-none">MAIOR FATURAMENTO</p>
+                        <p className="text-[#004ac6] text-xl font-black mt-2 leading-none" title={formatCargoCompactLocal(maiorFaturamentoValue)}>
+                          {formatCargoCompactLocal(maiorFaturamentoValue)}
+                        </p>
+                        <p className="text-[11px] text-[#737686] font-extrabold mt-1.5 leading-none">{maiorFaturamentoPlaca}</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* ANALYTICS SECTION GRID: BAR DISTRIBUTION (7/12) & META METRICS PIE (5/12) */}
+                  <div className="grid grid-cols-12 gap-6">
+                    {/* TRIPS DISTRIBUTION BAR CHART */}
+                    <div className="col-span-12 lg:col-span-7 bg-white border border-[#c3c6d7]/30 rounded-2xl p-6 shadow-xs flex flex-col justify-between min-h-[504px]">
+                      <div>
+                        <h4 className="text-sm font-black text-[#0b1c30] uppercase tracking-wider mb-1">
+                          DISTRIBUIÇÃO DE PLACAS POR QUANTIDADE DE VIAGENS
+                        </h4>
+                        <p className="text-[11px] text-[#737686] mb-8 font-bold">
+                          Contagem consolidada de veículos em cada categoria de viagem
+                        </p>
+                      </div>
+
+                      {/* Bar Plot */}
+                      <div id="vehiculos-distribuicao-grafico" className="relative flex-1 h-[380px] flex items-end">
+                        {/* Y-Axis scale label */}
+                        <div className="absolute top-0 -left-2 h-full flex flex-col justify-between items-end text-slate-400 font-mono text-[10px] leading-none pointer-events-none pr-3 py-1">
+                          {ticks.map((t, idx) => (
+                            <span key={idx}>{t}</span>
+                          ))}
                         </div>
 
-                        {/* Individual progress bar details */}
-                        <div className="space-y-2 mt-5">
-                          <div className="flex justify-between items-center text-xs font-bold text-[#434655]">
-                            <span>Progresso Individual</span>
-                            <span className={isMetaAtingida ? 'text-secondary' : 'text-error'}>{m.percentProgresso}%</span>
+                        {/* Chart Area background dotted grid lines */}
+                        <div className="absolute inset-x-0 inset-y-0 pl-6 flex flex-col justify-between pointer-events-none">
+                          {ticks.map((_, idx) => (
+                            <div key={idx} className="w-full h-0 border-b border-dashed border-slate-100" />
+                          ))}
+                        </div>
+
+                        {/* Dynamic Interactive Columns container */}
+                        <div className="flex-1 h-full pl-8 flex items-end justify-around relative z-10 select-none pb-0.5">
+                          {barData.map((d) => {
+                            const heightPercent = maxTick > 0 ? (d.count / maxTick) * 100 : 0;
+                            const isCurrentlyHovered = hoveredBarLabel === d.label;
+                            return (
+                              <div
+                                key={d.label}
+                                onMouseEnter={() => setHoveredBarLabel(d.label)}
+                                onMouseLeave={() => setHoveredBarLabel(null)}
+                                onClick={() => setSelectedTripCategory(d.label)}
+                                className={`relative group flex flex-col items-center w-14 md:w-20 h-full justify-end cursor-pointer pt-6 transition-transform duration-200 ${
+                                  isCurrentlyHovered ? 'scale-105' : 'scale-100'
+                                }`}
+                              >
+                                {/* Hover interactive tooltip popover */}
+                                <div
+                                  className={`absolute bottom-[105%] left-1/2 -translate-x-1/2 bg-[#0b1c30]/95 backdrop-blur-md text-white border border-white/10 shadow-2xl rounded-xl p-3.5 z-40 w-48 transition-all duration-150 text-left ${
+                                    isCurrentlyHovered
+                                      ? 'opacity-100 scale-100 pointer-events-auto'
+                                      : 'opacity-0 scale-95 pointer-events-none group-hover:opacity-100 group-hover:scale-100'
+                                  }`}
+                                >
+                                  <p className="text-xs font-black leading-none text-[#6cf8bb]">
+                                    {d.label}
+                                  </p>
+                                  <div className="mt-2.5 text-[11px] space-y-1.5 text-slate-200 font-sans">
+                                    <p className="flex justify-between gap-4">
+                                      <span>Quantidade:</span>
+                                      <span className="font-extrabold text-white">{d.count} placas</span>
+                                    </p>
+                                    <p className="flex justify-between gap-4">
+                                      <span>Participação:</span>
+                                      <span className="font-extrabold text-[#6cf8bb]">{d.percent}%</span>
+                                    </p>
+                                  </div>
+                                  <div className="mt-2.5 pt-2 border-t border-white/10 text-[9px] text-[#6cf8bb] font-black text-center flex items-center justify-center gap-1 font-sans uppercase">
+                                    <span>🔍 Clique para detalhar placas</span>
+                                  </div>
+                                </div>
+
+                                {/* Active labels above the column bars */}
+                                <span className={`text-sm font-black mb-2.5 z-10 transition-transform duration-200 ${
+                                  isCurrentlyHovered ? 'text-[#004ac6] scale-115' : 'text-[#0b1c30] group-hover:scale-110'
+                                }`}>
+                                  {d.count}
+                                </span>
+
+                                {/* Vertical Column Color bar */}
+                                <div
+                                  className={`w-full bg-gradient-to-t from-[#00399c] to-[#1e70e3] rounded-t-lg transition-all duration-300 shadow-sm relative ${
+                                    isCurrentlyHovered ? 'from-[#004ac6] to-[#4e96ff] shadow-md' : 'hover:from-[#004ac6] hover:to-[#4e96ff]'
+                                  }`}
+                                  style={{ height: `${heightPercent}%`, minHeight: d.count > 0 ? '5px' : '1px' }}
+                                >
+                                  {/* Glass highlight overlay */}
+                                  <div className={`absolute inset-0 bg-white/10 transition-opacity rounded-t-lg ${
+                                    isCurrentlyHovered ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+                                  }`} />
+                                </div>
+
+                                {/* X-Axis title labels under the vertical bars */}
+                                <span className={`absolute top-[102%] text-[10px] whitespace-nowrap tracking-tight transition-colors duration-200 ${
+                                  isCurrentlyHovered ? 'text-[#004ac6] font-extrabold' : 'font-black text-slate-500'
+                                }`}>
+                                  {d.label}
+                                </span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* TARGET METRIC RATIO DONUT AND HIGHLIGHT (5/12) */}
+                    <div className="col-span-12 lg:col-span-5 flex flex-col gap-6">
+                      {/* Plates Distribution Pie Chart Card */}
+                      <div className="bg-white border border-[#c3c6d7]/30 rounded-2xl p-6 shadow-xs flex flex-col justify-between h-[240px]">
+                        <div>
+                          <h4 className="text-xs font-black text-[#0b1c30] uppercase tracking-wider mb-1">
+                            DISTRIBUIÇÃO DE PLACAS (%)
+                          </h4>
+                          <p className="text-[11px] text-[#737686] font-bold">
+                            Proporção de veículos por quantidade de viagens
+                          </p>
+                        </div>
+
+                        <div className="flex items-center justify-between gap-8 py-1.5 mt-1">
+                          {/* Circle Pie SVG */}
+                          <div className="relative flex-shrink-0 w-32 h-32 flex items-center justify-center">
+                            <svg className="-rotate-90 w-full h-full drop-shadow-sm" viewBox="0 0 32 32">
+                              {/* Base background circle */}
+                              <circle cx="16" cy="16" r="16" fill="#f1f5f9" />
+                              
+                              {/* Slice 1 (1 viagem - Red) */}
+                              {s1 > 0 && (
+                                <circle
+                                  cx="16"
+                                  cy="16"
+                                  r="8"
+                                  fill="transparent"
+                                  stroke="#ef4444"
+                                  strokeWidth="16"
+                                  strokeDasharray={`${s1} 50.265`}
+                                  strokeDashoffset="0"
+                                  className="transition-all duration-700 ease-out"
+                                />
+                              )}
+                              
+                              {/* Slice 2 (2 viagens - Orange) */}
+                              {s2 > 0 && (
+                                <circle
+                                  cx="16"
+                                  cy="16"
+                                  r="8"
+                                  fill="transparent"
+                                  stroke="#f97316"
+                                  strokeWidth="16"
+                                  strokeDasharray={`${s2} 50.265`}
+                                  strokeDashoffset={`-${s1}`}
+                                  className="transition-all duration-700 ease-out"
+                                />
+                              )}
+                              
+                              {/* Slice 3 (3 viagens - Amber) */}
+                              {s3 > 0 && (
+                                <circle
+                                  cx="16"
+                                  cy="16"
+                                  r="8"
+                                  fill="transparent"
+                                  stroke="#f59e0b"
+                                  strokeWidth="16"
+                                  strokeDasharray={`${s3} 50.265`}
+                                  strokeDashoffset={`-${s1 + s2}`}
+                                  className="transition-all duration-700 ease-out"
+                                />
+                              )}
+                              
+                              {/* Slice 4 (4 viagens - Emerald) */}
+                              {s4 > 0 && (
+                                <circle
+                                  cx="16"
+                                  cy="16"
+                                  r="8"
+                                  fill="transparent"
+                                  stroke="#10b981"
+                                  strokeWidth="16"
+                                  strokeDasharray={`${s4} 50.265`}
+                                  strokeDashoffset={`-${s1 + s2 + s3}`}
+                                  className="transition-all duration-700 ease-out"
+                                />
+                              )}
+                              
+                              {/* Slice 5 (5 ou mais - Purple) */}
+                              {s5 > 0 && (
+                                <circle
+                                  cx="16"
+                                  cy="16"
+                                  r="8"
+                                  fill="transparent"
+                                  stroke="#8b5cf6"
+                                  strokeWidth="16"
+                                  strokeDasharray={`${s5} 50.265`}
+                                  strokeDashoffset={`-${s1 + s2 + s3 + s4}`}
+                                  className="transition-all duration-700 ease-out"
+                                />
+                              )}
+                            </svg>
+                            {/* Centered clean badge overlay */}
+                            <div className="absolute bg-[#0b1c30]/90 backdrop-blur-xs text-white text-[10px] font-black px-2 py-1 rounded-full shadow-lg border border-white/20 whitespace-nowrap">
+                              {totalPlacas} Placas
+                            </div>
                           </div>
-                          <div className="h-2 w-full bg-gray-100 rounded-full overflow-hidden">
-                            <div
-                              className={`h-full ${isMetaAtingida ? 'bg-[#004ac6]' : 'bg-error'}`}
-                              style={{ width: `${Math.min(100, m.percentProgresso)}%` }}
-                            />
+
+                          {/* Beautiful compact list/legend of plate percent segment distributions */}
+                          <div className="flex-1 space-y-1.5 pl-1.5 select-none text-[11px]">
+                            <div className="flex items-center justify-between gap-1 border-b border-slate-100 pb-1">
+                              <div className="flex items-center gap-1.5">
+                                <span className="w-2.5 h-2.5 rounded-full bg-[#ef4444] shrink-0" />
+                                <span className="font-extrabold text-slate-700">1 viagem</span>
+                              </div>
+                              <span className="font-black text-slate-800">{c1} ({p1.toFixed(0)}%)</span>
+                            </div>
+
+                            <div className="flex items-center justify-between gap-1 border-b border-slate-100 pb-1">
+                              <div className="flex items-center gap-1.5">
+                                <span className="w-2.5 h-2.5 rounded-full bg-[#f97316] shrink-0" />
+                                <span className="font-extrabold text-slate-700">2 viagens</span>
+                              </div>
+                              <span className="font-black text-slate-800">{c2} ({p2.toFixed(0)}%)</span>
+                            </div>
+
+                            <div className="flex items-center justify-between gap-1 border-b border-slate-100 pb-1">
+                              <div className="flex items-center gap-1.5">
+                                <span className="w-2.5 h-2.5 rounded-full bg-[#f59e0b] shrink-0" />
+                                <span className="font-extrabold text-slate-700">3 viagens</span>
+                              </div>
+                              <span className="font-black text-slate-800">{c3} ({p3.toFixed(0)}%)</span>
+                            </div>
+
+                            <div className="flex items-center justify-between gap-1 border-b border-slate-100 pb-1">
+                              <div className="flex items-center gap-1.5">
+                                <span className="w-2.5 h-2.5 rounded-full bg-[#10b981] shrink-0" />
+                                <span className="font-extrabold text-slate-700">4 viagens</span>
+                              </div>
+                              <span className="font-black text-slate-800">{c4} ({p4.toFixed(0)}%)</span>
+                            </div>
+
+                            <div className="flex items-center justify-between gap-1">
+                              <div className="flex items-center gap-1.5">
+                                <span className="w-2.5 h-2.5 rounded-full bg-[#8b5cf6] shrink-0" />
+                                <span className="font-extrabold text-slate-700">5+ viagens</span>
+                              </div>
+                              <span className="font-black text-slate-800">{c5} ({p5.toFixed(0)}%)</span>
+                            </div>
                           </div>
                         </div>
                       </div>
-                    );
-                  })}
-                </div>
-              </motion.div>
-            )}
+
+                      {/* STATUS REVENUE HORIZONTAL PRODUCER COMPARISON */}
+                      <div className="bg-white border border-[#c3c6d7]/30 rounded-2xl p-6 shadow-xs flex flex-col justify-between h-[240px]">
+                        <div>
+                          <h4 className="text-xs font-black text-[#0b1c30] uppercase tracking-wider mb-1">
+                            FATURAMENTO POR STATUS DA META
+                          </h4>
+                          <p className="text-[11px] text-[#737686] font-bold">
+                            Faturamento total acumulado por faixa
+                          </p>
+                        </div>
+
+                        <div className="space-y-5 my-2.5">
+                          {/* Within threshold revenue */}
+                          <div className="space-y-1.5">
+                            <div className="flex justify-between items-end text-[11px] font-bold">
+                              <span className="text-[#00714d] uppercase tracking-wider">Dentro da Meta</span>
+                              <span className="text-xs text-[#0b1c30] font-black">
+                                R$ {faturamentoDentro.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                              </span>
+                            </div>
+                            <div className="w-full bg-[#f8f9ff] h-4.5 rounded-xl overflow-hidden p-0.5 border border-[#c3c6d7]/15">
+                              <div
+                                className="h-full bg-gradient-to-r from-[#10b981] to-[#34d399] rounded-lg transition-all duration-1000 ease-out"
+                                style={{ width: `${percentDentroFat || 1}%` }}
+                              />
+                            </div>
+                          </div>
+
+                          {/* Out-of threshold revenue */}
+                          <div className="space-y-1.5">
+                            <div className="flex justify-between items-end text-[11px] font-bold">
+                              <span className="text-rose-700 uppercase tracking-wider">Fora da Meta</span>
+                              <span className="text-xs text-[#0b1c30] font-black">
+                                R$ {faturamentoFora.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                              </span>
+                            </div>
+                            <div className="w-full bg-[#f8f9ff] h-4.5 rounded-xl overflow-hidden p-0.5 border border-[#c3c6d7]/15">
+                              <div
+                                className="h-full bg-gradient-to-r from-[#f04438] to-[#f87171] rounded-lg transition-all duration-1000 ease-out"
+                                style={{ width: `${percentForaFat || 1}%` }}
+                              />
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Metric ticks indicator */}
+                        <div className="border-t border-slate-100 mt-2 pt-1.5 flex justify-between text-[8px] text-slate-400 font-mono select-none">
+                          <span>0</span>
+                          <span>1M</span>
+                          <span>2M</span>
+                          <span>3M</span>
+                          <span>4M</span>
+                          <span>5M</span>
+                          <span>6M</span>
+                          <span>Faturamento (R$)</span>
+                        </div>
+                      </div>
+
+                      {/* AUDITORIA DE FAIXAS (VALIDAÇÃO OBRIGATÓRIA) */}
+                      <div className="bg-slate-50 border border-slate-200 rounded-2xl p-5 shadow-xs flex flex-col justify-between">
+                        <div>
+                          <div className="flex items-center gap-2 mb-1.5">
+                            <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
+                            <h4 className="text-xs font-black text-slate-700 uppercase tracking-wider">
+                              AUDITORIA DE FAIXAS (VALIDAÇÃO)
+                            </h4>
+                          </div>
+                          <p className="text-[10px] text-slate-500 font-bold mb-3">
+                            Verificação detalhada baseada no período operacional para {totalPlacas} placas:
+                          </p>
+                          
+                          <div className="grid grid-cols-2 gap-x-6 gap-y-1.5 text-xs font-mono text-slate-700 bg-white p-3 rounded-lg border border-slate-100">
+                            <div className="flex justify-between border-b border-dashed border-slate-100 pb-0.5">
+                              <span className="font-semibold text-slate-400">Total de Placas:</span>
+                              <span id="audi-total-placas" className="font-bold text-slate-800">{totalPlacas}</span>
+                            </div>
+                            <div className="flex justify-between border-b border-dashed border-slate-100 pb-0.5">
+                              <span className="font-semibold text-slate-400">Faixa 1 viagem:</span>
+                              <span id="audi-c1" className="font-bold text-slate-800">{c1} placas</span>
+                            </div>
+                            <div className="flex justify-between border-b border-dashed border-slate-100 pb-0.5">
+                              <span className="font-semibold text-slate-400">Faixa 2 viagens:</span>
+                              <span id="audi-c2" className="font-bold text-slate-800">{c2} placas</span>
+                            </div>
+                            <div className="flex justify-between border-b border-dashed border-slate-100 pb-0.5">
+                              <span className="font-semibold text-slate-400">Faixa 3 viagens:</span>
+                              <span id="audi-c3" className="font-bold text-slate-800">{c3} placas</span>
+                            </div>
+                            <div className="flex justify-between border-b border-dashed border-slate-100 pb-0.5">
+                              <span className="font-semibold text-slate-400">Faixa 4 viagens:</span>
+                              <span id="audi-c4" className="font-bold text-slate-800">{c4} placas</span>
+                            </div>
+                            <div className="flex justify-between border-b border-dashed border-slate-100 pb-0.5">
+                              <span className="font-semibold text-slate-400">Faixa 5+ viagens:</span>
+                              <span id="audi-c5" className="font-bold text-slate-800">{c5} placas</span>
+                            </div>
+                            <div className="col-span-2 flex justify-between pt-1.5 mt-0.5 border-t border-slate-200 font-black">
+                              <span className="text-[#0b1c30] uppercase text-[10px]">Soma das faixas:</span>
+                              <span id="audi-soma-faixas" className={c1+c2+c3+c4+c5 === totalPlacas ? "text-[#10b981] text-[11px]" : "text-rose-500 text-[11px]"}>
+                                {c1 + c2 + c3 + c4 + c5} placas {c1+c2+c3+c4+c5 === totalPlacas ? "✓ INTEGRADO" : "✗ RECOUP"}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* GRANULAR VEHICLE SEARCH AND DETAILED RANKINGS TABLE */}
+                  <div className="bg-white border border-[#c3c6d7]/30 rounded-2xl p-6 shadow-xs space-y-4">
+                    {/* Header Controls for sorting, search and download */}
+                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-slate-100 pb-4">
+                      <div>
+                        <h4 className="text-sm font-black text-[#0b1c30] flex items-center gap-2">
+                          🏆 Ranking Geral de Desempenho por Veículo
+                        </h4>
+                        <p className="text-[11px] text-[#737686] font-bold">
+                          Mostrando {filteredRankings.length === 0 ? 0 : (currentPageClamped - 1) * rankingsPageSize + 1} a {Math.min(currentPageClamped * rankingsPageSize, filteredRankings.length)} de {filteredRankings.length} registros
+                        </p>
+                      </div>
+                      
+                      <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full sm:w-auto">
+                        {/* Search Placa Text Box */}
+                        <div className="relative flex-1 sm:w-56">
+                          <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                          <input
+                            type="text"
+                            placeholder="Buscar placa..."
+                            value={vehiculosSearchQuery}
+                            onChange={(e) => {
+                              setVehiculosSearchQuery(e.target.value);
+                              setVehiculosPage(1); // Auto rest page to 1
+                            }}
+                            className="w-full pl-9 pr-4 py-2 border border-[#c3c6d7]/35 rounded-xl text-xs font-bold text-[#0b1c30] placeholder-slate-400 focus:outline-[#004ac6] focus:outline focus:outline-1 transition-all bg-white"
+                          />
+                          {vehiculosSearchQuery && (
+                            <button
+                              onClick={() => { setVehiculosSearchQuery(''); setVehiculosPage(1); }}
+                              className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-[10px] font-extrabold cursor-pointer"
+                            >
+                              Limpar
+                            </button>
+                          )}
+                        </div>
+
+                        {/* Export PDF Button */}
+                        <button
+                          onClick={() => handleDownloadPDF('Relatorio_Frotas')}
+                          className="border border-[#c3c6d7]/35 text-[#0b1c30] hover:bg-slate-50 px-4 py-2 rounded-xl text-xs font-extrabold flex items-center justify-center gap-1.5 cursor-pointer active:scale-95 transition-all w-full sm:w-auto shrink-0 bg-white"
+                        >
+                          <Download className="w-4 h-4" /> Exportar PDF
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Responsive Tabular Grid block */}
+                    <div className="overflow-x-auto rounded-xl border border-slate-100">
+                      <table className="w-full text-left border-collapse min-w-[1100px]">
+                        <thead>
+                          <tr className="border-b border-[#c3c6d7]/30 text-slate-500 text-[10px] font-extrabold uppercase tracking-wider bg-[#f8f9ff]">
+                            <th className="px-4 py-3.5 text-center w-14">Rank</th>
+                            <th className="px-4 py-3.5 w-32">Placa</th>
+                            <th className="px-4 py-3.5">Supervisor</th>
+                            <th className="px-4 py-3.5">Motorista Principal</th>
+                            <th className="px-4 py-3.5">Última Rota</th>
+                            <th className="px-4 py-3.5 text-center w-24">Viagens</th>
+                            <th className="px-4 py-3.5 text-center w-18">Meta</th>
+                            <th className="px-4 py-3.5 text-center w-22">% Ating.</th>
+                            <th className="px-4 py-3.5 text-right">Faturamento</th>
+                            <th className="px-4 py-3.5 text-center w-22">Conhec.</th>
+                            <th className="px-4 py-3.5 text-right">KM Rodados</th>
+                            <th className="px-4 py-3.5 text-center w-36">Status</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100 text-xs font-bold text-slate-700 font-sans bg-white">
+                          {paginatedRankings.length === 0 ? (
+                            <tr>
+                              <td colSpan={12} className="text-center py-10 text-slate-400 font-semibold">
+                                Nenhuma placa correspondente aos filtros e busca ativa.
+                              </td>
+                            </tr>
+                          ) : (
+                            paginatedRankings.map((r, idx) => {
+                              const overallPos = (currentPageClamped - 1) * rankingsPageSize + idx + 1;
+                              const isMetaDone = r.viagensCount >= 4;
+                              
+                              const associatedViagens = viagens.filter(v => v.placa === r.placa);
+                              const lastRoute = associatedViagens[0]?.rota || 'Sem rota programada';
+                              
+                              // Medal style or position styled badge representation
+                              const medalStyle = 
+                                overallPos === 1 ? 'bg-amber-100 text-amber-800 border-amber-200 font-black' :
+                                overallPos === 2 ? 'bg-slate-100 text-slate-800 border-slate-200 font-black' :
+                                overallPos === 3 ? 'bg-orange-100 text-orange-850 border-orange-200 font-black' :
+                                'bg-slate-50 text-slate-500 border-slate-100 font-semibold';
+
+                              return (
+                                <tr key={r.placa} className="hover:bg-slate-50/50 transition-colors">
+                                  <td className="px-4 py-3.5 text-center">
+                                    <span className={`inline-flex items-center justify-center w-6 h-6 rounded-full text-[11px] border ${medalStyle}`}>
+                                      {overallPos}
+                                    </span>
+                                  </td>
+                                  <td className="px-4 py-3.5">
+                                    <PlateTooltip plateData={r}>
+                                      <span className="cursor-help inline-block px-2.5 py-1 rounded-lg bg-[#eff4ff] text-[#004ac6] border border-[#c3c6d7]/30 font-mono text-[11px] font-extrabold hover:border-[#004ac6] transition-all whitespace-nowrap">
+                                        {r.placa}
+                                      </span>
+                                    </PlateTooltip>
+                                  </td>
+                                  <td className="px-4 py-3.5 text-slate-600 font-bold uppercase max-w-[120px] truncate" title={r.supervisor || 'LEONAN'}>
+                                    {r.supervisor || 'LEONAN'}
+                                  </td>
+                                  <td className="px-4 py-3.5 text-slate-600 font-bold uppercase max-w-[160px] truncate" title={r.motorista || 'Sem motorista'}>
+                                    {r.motorista || 'Sem motorista'}
+                                  </td>
+                                  <td className="px-4 py-3.5 text-slate-500 font-medium truncate max-w-[180px]" title={lastRoute}>
+                                    {lastRoute}
+                                  </td>
+                                  <td className="px-4 py-3.5 text-center text-slate-800 font-black">
+                                    {r.viagensCount}
+                                  </td>
+                                  <td className="px-4 py-3.5 text-center text-slate-400">
+                                    4
+                                  </td>
+                                  <td className="px-4 py-3.5 text-center">
+                                    <span className={`font-black ${isMetaDone ? 'text-emerald-600' : 'text-rose-500'}`}>
+                                      {r.percentMeta}%
+                                    </span>
+                                  </td>
+                                  <td className="px-4 py-3.5 text-right text-[#004ac6] font-black whitespace-nowrap">
+                                    R$ {r.faturamentoTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                  </td>
+                                  <td className="px-4 py-3.5 text-center text-slate-600 font-medium">
+                                    {r.viagensCount * 4}
+                                  </td>
+                                  <td className="px-4 py-3.5 text-right text-slate-600 whitespace-nowrap font-mono text-[11px] font-semibold">
+                                    {r.kmRodadoTotal ? r.kmRodadoTotal.toLocaleString('pt-BR') : '0'} km
+                                  </td>
+                                  <td className="px-4 py-3.5 text-center whitespace-nowrap">
+                                    <span className={`inline-block px-3 py-1 rounded-full text-[10px] font-extrabold border ${
+                                      isMetaDone 
+                                        ? 'bg-emerald-50 text-emerald-700 border-emerald-100' 
+                                        : 'bg-rose-50 text-rose-700 border-rose-100'
+                                    }`}>
+                                      {isMetaDone ? '✓ Dentro da Meta' : '⚠ Fora da Meta'}
+                                    </span>
+                                  </td>
+                                </tr>
+                              );
+                            })
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    {/* Table Pagination Section */}
+                    {maxRankingsPage > 1 && (
+                      <div className="flex items-center justify-between border-t border-slate-100 pt-5 select-none">
+                        <span className="text-xs text-[#737686] font-bold">
+                          Página {currentPageClamped} de {maxRankingsPage}
+                        </span>
+                        
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            onClick={() => setVehiculosPage(p => Math.max(1, p - 1))}
+                            disabled={currentPageClamped === 1}
+                            className="border border-slate-200 hover:bg-slate-50 disabled:opacity-40 disabled:hover:bg-transparent text-[#0b1c30] w-8 h-8 rounded-lg flex items-center justify-center transition-colors cursor-pointer text-xs font-black"
+                          >
+                            &lt;
+                          </button>
+                          
+                          {Array.from({ length: maxRankingsPage }, (_, i) => i + 1)
+                            .filter(p => {
+                              // Only show pages around the current page standard range
+                              return p === 1 || p === maxRankingsPage || Math.abs(p - currentPageClamped) <= 1;
+                            })
+                            .map((p, i, arr) => {
+                              const showEllipsis = i > 0 && p - arr[i - 1] > 1;
+                              return (
+                                <React.Fragment key={p}>
+                                  {showEllipsis && <span className="text-slate-400 text-xs px-1 font-extrabold">...</span>}
+                                  <button
+                                    onClick={() => setVehiculosPage(p)}
+                                    className={`w-8 h-8 rounded-lg flex items-center justify-center text-xs font-black transition-colors ${
+                                      currentPageClamped === p
+                                        ? 'bg-[#004ac6] text-white shadow-xs'
+                                        : 'bg-white border border-slate-200 hover:bg-slate-50 text-[#0b1c30]'
+                                    }`}
+                                  >
+                                    {p}
+                                  </button>
+                                </React.Fragment>
+                              );
+                            })}
+                          
+                          <button
+                            onClick={() => setVehiculosPage(p => Math.min(maxRankingsPage, p + 1))}
+                            disabled={currentPageClamped === maxRankingsPage}
+                            className="border border-slate-200 hover:bg-slate-50 disabled:opacity-40 disabled:hover:bg-transparent text-[#0b1c30] w-8 h-8 rounded-lg flex items-center justify-center transition-colors cursor-pointer text-xs font-black"
+                          >
+                            &gt;
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </motion.div>
+              );
+            })()}
+
+
 
             {/* View tab: Rotas (Route performance and tracking layout) */}
             {activeTab === 'rotas' && (
@@ -2988,6 +3790,204 @@ export default function Home() {
                       </p>
                     </div>
                   )}
+                </div>
+
+                {/* Comparativos de Rankings de Rotas */}
+                <div className="pt-4 border-t border-[#c3c6d7]/20 space-y-4">
+                  <div>
+                    <h4 className="text-[10px] font-black text-[#737686] uppercase tracking-widest leading-none">
+                      DESEMPENHO COMPARATIVO DE ROTAS
+                    </h4>
+                    <h3 className="text-base font-black mt-1 text-[#0b1c30]">
+                      Principais Indicadores de Rotas (Top 5)
+                    </h3>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
+                    {/* Card 1: Maior Faturamento */}
+                    <div className="bg-white border border-[#c3c6d7]/30 rounded-2xl p-5 shadow-xs flex flex-col justify-between">
+                      <div>
+                        <div className="flex items-center gap-2 mb-3 pb-2 border-b border-slate-100">
+                          <TrendingUp className="w-4 h-4 text-emerald-500 shrink-0" />
+                          <h5 className="text-[11px] font-extrabold text-[#0b1c30] uppercase tracking-wider">
+                            Maior Faturamento
+                          </h5>
+                        </div>
+                        <div className="space-y-2">
+                          {topRotasMaiorFaturamento.length === 0 ? (
+                            <p className="text-[11px] text-gray-400 font-bold py-2">Nenhuma rota calculada.</p>
+                          ) : (
+                            topRotasMaiorFaturamento.map((item, index) => (
+                              <div
+                                key={item.rota}
+                                onClick={() => setSelectedRouteName(item.rota)}
+                                className={`flex items-center justify-between p-2 rounded-lg border transition-all cursor-pointer ${
+                                  selectedRouteName === item.rota
+                                    ? 'bg-[#eff4ff] border-[#004ac6]'
+                                    : 'bg-slate-50/50 border-transparent hover:bg-slate-50 hover:border-slate-200'
+                                }`}
+                              >
+                                <div className="flex items-center gap-2 truncate">
+                                  <span className={`w-5 h-5 rounded-md flex items-center justify-center text-[10px] font-black shrink-0 ${
+                                    index === 0 ? 'bg-amber-100 text-amber-700' :
+                                    index === 1 ? 'bg-slate-100 text-slate-700' :
+                                    index === 2 ? 'bg-orange-100 text-orange-700' :
+                                    'bg-gray-100 text-gray-500'
+                                  }`}>
+                                    {index + 1}º
+                                  </span>
+                                  <span className="text-[10px] font-bold text-slate-700 truncate uppercase" title={item.rota}>
+                                    {item.rota}
+                                  </span>
+                                </div>
+                                <span className="text-[10px] font-black text-emerald-600 shrink-0 select-none">
+                                  R$ {item.totalValue.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}
+                                </span>
+                              </div>
+                            ))
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Card 2: Maior Número de Viagens */}
+                    <div className="bg-white border border-[#c3c6d7]/30 rounded-2xl p-5 shadow-xs flex flex-col justify-between">
+                      <div>
+                        <div className="flex items-center gap-2 mb-3 pb-2 border-b border-slate-100">
+                          <Award className="w-4 h-4 text-blue-500 shrink-0" />
+                          <h5 className="text-[11px] font-extrabold text-[#0b1c30] uppercase tracking-wider">
+                            Mais Viagens
+                          </h5>
+                        </div>
+                        <div className="space-y-2">
+                          {topRotasMaiorViagens.length === 0 ? (
+                            <p className="text-[11px] text-gray-400 font-bold py-2">Nenhuma rota calculada.</p>
+                          ) : (
+                            topRotasMaiorViagens.map((item, index) => (
+                              <div
+                                key={item.rota}
+                                onClick={() => setSelectedRouteName(item.rota)}
+                                className={`flex items-center justify-between p-2 rounded-lg border transition-all cursor-pointer ${
+                                  selectedRouteName === item.rota
+                                    ? 'bg-[#eff4ff] border-[#004ac6]'
+                                    : 'bg-slate-50/50 border-transparent hover:bg-slate-50 hover:border-slate-200'
+                                }`}
+                              >
+                                <div className="flex items-center gap-2 truncate">
+                                  <span className={`w-5 h-5 rounded-md flex items-center justify-center text-[10px] font-black shrink-0 ${
+                                    index === 0 ? 'bg-amber-100 text-amber-700' :
+                                    index === 1 ? 'bg-slate-100 text-slate-700' :
+                                    index === 2 ? 'bg-orange-100 text-orange-700' :
+                                    'bg-gray-100 text-gray-500'
+                                  }`}>
+                                    {index + 1}º
+                                  </span>
+                                  <span className="text-[10px] font-bold text-slate-700 truncate uppercase" title={item.rota}>
+                                    {item.rota}
+                                  </span>
+                                </div>
+                                <span className="text-[10px] font-black text-blue-600 shrink-0 select-none">
+                                  {item.totalTrips} {item.totalTrips === 1 ? 'viagem' : 'viagens'}
+                                </span>
+                              </div>
+                            ))
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Card 3: Menor Faturamento */}
+                    <div className="bg-white border border-[#c3c6d7]/30 rounded-2xl p-5 shadow-xs flex flex-col justify-between">
+                      <div>
+                        <div className="flex items-center gap-2 mb-3 pb-2 border-b border-slate-100">
+                          <TrendingDown className="w-4 h-4 text-rose-500 shrink-0" />
+                          <h5 className="text-[11px] font-extrabold text-[#0b1c30] uppercase tracking-wider">
+                            Pior Faturamento
+                          </h5>
+                        </div>
+                        <div className="space-y-2">
+                          {topRotasPiorFaturamento.length === 0 ? (
+                            <p className="text-[11px] text-gray-400 font-bold py-2">Nenhuma rota calculada.</p>
+                          ) : (
+                            topRotasPiorFaturamento.map((item, index) => (
+                              <div
+                                key={item.rota}
+                                onClick={() => setSelectedRouteName(item.rota)}
+                                className={`flex items-center justify-between p-2 rounded-lg border transition-all cursor-pointer ${
+                                  selectedRouteName === item.rota
+                                    ? 'bg-[#eff4ff] border-[#004ac6]'
+                                    : 'bg-slate-50/50 border-transparent hover:bg-slate-50 hover:border-slate-200'
+                                }`}
+                              >
+                                <div className="flex items-center gap-2 truncate">
+                                  <span className={`w-5 h-5 rounded-md flex items-center justify-center text-[10px] font-black shrink-0 ${
+                                    index === 0 ? 'bg-rose-100 text-rose-700' :
+                                    index === 1 ? 'bg-orange-100 text-orange-700' :
+                                    index === 2 ? 'bg-yellow-100 text-yellow-700' :
+                                    'bg-gray-100 text-gray-500'
+                                  }`}>
+                                    {index + 1}º
+                                  </span>
+                                  <span className="text-[10px] font-bold text-slate-700 truncate uppercase" title={item.rota}>
+                                    {item.rota}
+                                  </span>
+                                </div>
+                                <span className="text-[10px] font-black text-rose-600 shrink-0 select-none">
+                                  R$ {item.totalValue.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}
+                                </span>
+                              </div>
+                            ))
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Card 4: Menor Número de Viagens */}
+                    <div className="bg-white border border-[#c3c6d7]/30 rounded-2xl p-5 shadow-xs flex flex-col justify-between">
+                      <div>
+                        <div className="flex items-center gap-2 mb-3 pb-2 border-b border-slate-100">
+                          <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0" />
+                          <h5 className="text-[11px] font-extrabold text-[#0b1c30] uppercase tracking-wider">
+                            Menor Nº de Viagens
+                          </h5>
+                        </div>
+                        <div className="space-y-2">
+                          {topRotasMenorViagens.length === 0 ? (
+                            <p className="text-[11px] text-gray-400 font-bold py-2">Nenhuma rota calculada.</p>
+                          ) : (
+                            topRotasMenorViagens.map((item, index) => (
+                              <div
+                                key={item.rota}
+                                onClick={() => setSelectedRouteName(item.rota)}
+                                className={`flex items-center justify-between p-2 rounded-lg border transition-all cursor-pointer ${
+                                  selectedRouteName === item.rota
+                                    ? 'bg-[#eff4ff] border-[#004ac6]'
+                                    : 'bg-slate-50/50 border-transparent hover:bg-slate-50 hover:border-slate-200'
+                                }`}
+                              >
+                                <div className="flex items-center gap-2 truncate">
+                                  <span className={`w-5 h-5 rounded-md flex items-center justify-center text-[10px] font-black shrink-0 ${
+                                    index === 0 ? 'bg-rose-100 text-rose-700' :
+                                    index === 1 ? 'bg-orange-100 text-orange-700' :
+                                    index === 2 ? 'bg-yellow-100 text-yellow-700' :
+                                    'bg-gray-100 text-gray-500'
+                                  }`}>
+                                    {index + 1}º
+                                  </span>
+                                  <span className="text-[10px] font-bold text-slate-700 truncate uppercase" title={item.rota}>
+                                    {item.rota}
+                                  </span>
+                                </div>
+                                <span className="text-[10px] font-black text-amber-600 shrink-0 select-none">
+                                  {item.totalTrips} {item.totalTrips === 1 ? 'viagem' : 'viagens'}
+                                </span>
+                              </div>
+                            ))
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </motion.div>
             )}
@@ -3229,10 +4229,10 @@ export default function Home() {
             {/* View tab: Comparativo Mensal (Percentage variation of Faturamento Líquido and other Key indicators vs previous month) */}
             {activeTab === 'comparativo' && (
               <motion.div
-                key="comparativo"
-                initial={{ opacity: 0, y: 10 }}
+                initial={{ opacity: 0, y: 15 }}
                 animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -10 }}
+                exit={{ opacity: 0, y: -15 }}
+                transition={{ duration: 0.35, ease: "easeOut" }}
                 className="space-y-6"
               >
                 <header className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
@@ -3240,26 +4240,8 @@ export default function Home() {
                     <h2 className="text-[10px] font-extrabold text-[#737686] uppercase tracking-widest leading-none">
                       Desempenho e Variação Temporal
                     </h2>
-                    <h3 className="text-xl font-bold mt-1 text-[#0b1c30]">Comparativo Mensal & Variações MoM</h3>
+                    <h3 className="text-xl font-black mt-1 text-[#0b1c30]">Comparativo Mensal & Variações de Período</h3>
                   </div>
-                  
-                  {/* Select reference month directly on the page */}
-                  {comparativoMensal.length > 0 && (
-                    <div className="flex items-center gap-3 self-stretch sm:self-auto bg-white border border-[#c3c6d7]/30 px-3 py-1.5 rounded-xl shadow-xs">
-                      <span className="text-xs font-bold text-[#434655]">Mês de Referência:</span>
-                      <select
-                        value={selectedComparisonKey || ''}
-                        onChange={(e) => setSelectedComparisonKey(e.target.value)}
-                        className="bg-[#f8f9ff] text-xs font-bold text-[#0b1c30] px-3 py-2 rounded-lg border border-[#c3c6d7] focus:outline-none focus:ring-1 focus:ring-[#004ac6] cursor-pointer"
-                      >
-                        {comparativoMensal.map((item) => (
-                          <option key={item.key} value={item.key}>
-                            {item.mesNome}/{item.ano}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  )}
                 </header>
 
                 {comparativoMensal.length === 0 ? (
@@ -3270,7 +4252,9 @@ export default function Home() {
                 ) : (() => {
                   const activeIndex = comparativoMensal.findIndex(c => c.key === selectedComparisonKey);
                   const currentComp = activeIndex !== -1 ? comparativoMensal[activeIndex] : comparativoMensal[comparativoMensal.length - 1];
-                  const previousComp = activeIndex > 0 ? comparativoMensal[activeIndex - 1] : null;
+
+                  const baseIndex = comparisonBaseKey ? comparativoMensal.findIndex(c => c.key === comparisonBaseKey) : (activeIndex > 0 ? activeIndex - 1 : 0);
+                  const previousComp = baseIndex !== -1 ? comparativoMensal[baseIndex] : null;
 
                   const formatPercent = (val: number) => {
                     const sign = val >= 0 ? '+' : '';
@@ -3295,176 +4279,346 @@ export default function Home() {
                     return `${sign}${diff}`;
                   };
 
+                  const pct = (curr: number, prev: number) => {
+                    if (prev === 0) return curr > 0 ? 100 : 0;
+                    return ((curr - prev) / prev) * 100;
+                  };
+
+                  const compMetrics = {
+                    faturamentoLiquido: currentComp.faturamentoLiquido,
+                    faturamentoBruto: currentComp.faturamentoBruto,
+                    despesaOficina: currentComp.despesaOficina,
+                    qtdViagens: currentComp.qtdViagens,
+                    qtdVeiculos: currentComp.qtdVeiculos,
+                    kmRodado: currentComp.kmRodado,
+
+                    baseFaturamentoLiquido: previousComp ? previousComp.faturamentoLiquido : 0,
+                    baseFaturamentoBruto: previousComp ? previousComp.faturamentoBruto : 0,
+                    baseDespesaOficina: previousComp ? previousComp.despesaOficina : 0,
+                    baseQtdViagens: previousComp ? previousComp.qtdViagens : 0,
+                    baseQtdVeiculos: previousComp ? previousComp.qtdVeiculos : 0,
+                    baseKmRodado: previousComp ? previousComp.kmRodado : 0,
+
+                    varFaturamentoLiquido: previousComp ? pct(currentComp.faturamentoLiquido, previousComp.faturamentoLiquido) : 0,
+                    varFaturamentoBruto: previousComp ? pct(currentComp.faturamentoBruto, previousComp.faturamentoBruto) : 0,
+                    varDespesaOficina: previousComp ? pct(currentComp.despesaOficina, previousComp.despesaOficina) : 0,
+                    varQtdViagens: previousComp ? pct(currentComp.qtdViagens, previousComp.qtdViagens) : 0,
+                    varQtdVeiculos: previousComp ? pct(currentComp.qtdVeiculos, previousComp.qtdVeiculos) : 0,
+                    varKmRodado: previousComp ? pct(currentComp.kmRodado, previousComp.kmRodado) : 0,
+
+                    diffFaturamentoLiquido: previousComp ? currentComp.faturamentoLiquido - previousComp.faturamentoLiquido : 0,
+                    diffFaturamentoBruto: previousComp ? currentComp.faturamentoBruto - previousComp.faturamentoBruto : 0,
+                    diffDespesaOficina: previousComp ? currentComp.despesaOficina - previousComp.despesaOficina : 0,
+                    diffQtdViagens: previousComp ? currentComp.qtdViagens - previousComp.qtdViagens : 0,
+                    diffQtdVeiculos: previousComp ? currentComp.qtdVeiculos - previousComp.qtdVeiculos : 0,
+                    diffKmRodado: previousComp ? currentComp.kmRodado - previousComp.kmRodado : 0,
+                  };
+
+                  // Generate successive consecutive month pairs from loaded sequence
+                  const consecutivePairs = [];
+                  for (let i = 1; i < comparativoMensal.length; i++) {
+                    const base = comparativoMensal[i - 1];
+                    const target = comparativoMensal[i];
+                    
+                    const varLiquido = base.faturamentoLiquido !== 0
+                      ? ((target.faturamentoLiquido - base.faturamentoLiquido) / base.faturamentoLiquido) * 100
+                      : 0;
+                    
+                    consecutivePairs.push({
+                      baseKey: base.key,
+                      targetKey: target.key,
+                      label: `${base.mesNome.toUpperCase()} X ${target.mesNome.toUpperCase()}`,
+                      percent: varLiquido,
+                    });
+                  }
+
                   return (
                     <div className="space-y-6">
+                      {/* Comparison selection center with High Fidelity consecutive button selection pills and custom selectors */}
+                      <div className="bg-white border border-[#c3c6d7]/35 rounded-2xl p-5 shadow-3xs space-y-4 font-sans">
+                        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+                          <div>
+                            <h4 className="text-xs font-black text-[#0b1c30] uppercase tracking-wider flex items-center gap-2">
+                              Selecione os Meses de Referência para Comparar
+                            </h4>
+                            <p className="text-[11px] text-[#737686] font-semibold mt-1">
+                              Clique em uma comparação rápida MoM entre meses ou refine de forma totalmente personalizada usando os seletores abaixo
+                            </p>
+                          </div>
+                        </div>
+
+                        {consecutivePairs.length > 0 ? (
+                          <div className="flex flex-wrap gap-2.5 pt-1">
+                            {consecutivePairs.map((pair, idx) => {
+                              const isSelected = comparisonBaseKey === pair.baseKey && selectedComparisonKey === pair.targetKey;
+                              const isPositive = pair.percent >= 0;
+                              return (
+                                <button
+                                  key={idx}
+                                  onClick={() => {
+                                    setComparisonBaseKey(pair.baseKey);
+                                    setSelectedComparisonKey(pair.targetKey);
+                                    triggerToast(`📅 Comparando ${pair.label}`);
+                                  }}
+                                  className={`flex items-center gap-2.5 px-4 py-2.5 rounded-xl border text-xs font-black transition-all duration-200 cursor-pointer ${
+                                    isSelected
+                                      ? 'bg-[#004ac6] border-[#004ac6] text-white shadow-sm shadow-[#004ac6]/15'
+                                      : 'bg-[#f8f9ff] border-[#c3c6d7]/40 hover:bg-slate-50 text-[#0b1c30]'
+                                  }`}
+                                >
+                                  <span className="tracking-wide">{pair.label}</span>
+                                  <span className={`px-2 py-0.5 rounded text-[10px] font-black tracking-normal ${
+                                    isSelected
+                                      ? (isPositive ? 'bg-white/20 text-white' : 'bg-white/15 text-white')
+                                      : (isPositive ? 'bg-[#6cf8bb]/15 text-[#00714d]' : 'bg-rose-500/10 text-rose-600')
+                                  }`}>
+                                    {isPositive ? '+' : ''}{pair.percent.toFixed(1)}%
+                                  </span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        ) : (
+                          <p className="text-gray-400 text-xs italic font-medium">É necessário pelo menos dois meses de dados para ver comparações rápidas.</p>
+                        )}
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-4 border-t border-dashed border-slate-100">
+                          <div className="space-y-1.5 animate-fade-in">
+                            <label className="text-[10px] font-extrabold uppercase text-[#737686] tracking-wider block">Mês de Referência Base (Mês A)</label>
+                            <select
+                              value={comparisonBaseKey || ''}
+                              onChange={(e) => {
+                                setComparisonBaseKey(e.target.value);
+                                triggerToast(`📅 Mês Base atualizado!`);
+                              }}
+                              className="w-full bg-[#f8f9ff] text-xs font-bold text-[#0b1c30] px-4 py-3 rounded-xl border border-[#c3c6d7]/35 focus:outline-none focus:ring-1 focus:ring-[#004ac6] cursor-pointer"
+                            >
+                              {comparativoMensal.map((item) => (
+                                <option key={item.key} value={item.key}>
+                                  {item.mesNome} de {item.ano}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+
+                          <div className="space-y-1.5 animate-fade-in">
+                            <label className="text-[10px] font-extrabold uppercase text-[#737686] tracking-wider block">Mês de Referência Comparado (Mês B)</label>
+                            <select
+                              value={selectedComparisonKey || ''}
+                              onChange={(e) => {
+                                setSelectedComparisonKey(e.target.value);
+                                triggerToast(`📅 Mês Comparado atualizado!`);
+                              }}
+                              className="w-full bg-[#f8f9ff] text-xs font-bold text-[#0b1c30] px-4 py-3 rounded-xl border border-[#c3c6d7]/35 focus:outline-none focus:ring-1 focus:ring-[#004ac6] cursor-pointer"
+                            >
+                              {comparativoMensal.map((item) => (
+                                <option key={item.key} value={item.key}>
+                                  {item.mesNome} de {item.ano}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        </div>
+                      </div>
+
                       {/* Comparison KPI Grid */}
                       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                         {/* KPI 1: Faturamento Líquido */}
-                        <div className="bg-white p-6 border-l-4 border-l-[#6cf8bb] border font-sans border-[#c3c6d7]/30 rounded-2xl shadow-xs hover:shadow-md transition-all">
-                          <div className="flex justify-between items-start">
-                            <div>
-                              <span className="text-[11px] font-bold text-[#737686] uppercase tracking-wider block">Faturamento Líquido</span>
-                              <h4 className="text-xl font-black text-[#0b1c30] mt-1.5">{formatMoney(currentComp.faturamentoLiquido)}</h4>
+                        <div className="bg-white p-6 border border-[#c3c6d7]/35 rounded-2xl shadow-xs hover:shadow-md transition-all flex flex-col justify-between">
+                          <div>
+                            <div className="flex justify-between items-start">
+                              <span className="text-[10px] font-black text-[#737686] uppercase tracking-wider block">Faturamento Líquido</span>
+                              <div className={`px-2.5 py-1 rounded-full text-[10px] font-extrabold flex items-center gap-1 ${
+                                currentComp.faturamentoLiquido === (previousComp?.faturamentoLiquido || 0) ? 'bg-gray-100 text-gray-500' :
+                                compMetrics.varFaturamentoLiquido >= 0 ? 'bg-[#6cf8bb]/15 text-[#00714d]' : 'bg-rose-500/10 text-rose-600'
+                              }`}>
+                                {previousComp ? formatPercent(compMetrics.varFaturamentoLiquido) : '------'}
+                              </div>
                             </div>
-                            <div className={`px-2.5 py-1 rounded-full text-xs font-extrabold flex items-center gap-1 ${
-                              !previousComp ? 'bg-gray-100 text-gray-500' :
-                              currentComp.varFaturamentoLiquido >= 0 ? 'bg-[#6cf8bb]/15 text-[#00714d]' : 'bg-rose-500/10 text-rose-600'
-                            }`}>
-                              {previousComp ? formatPercent(currentComp.varFaturamentoLiquido) : 'Início'}
+                            
+                            {/* Comparison Side-By-Side */}
+                            <div className="grid grid-cols-2 gap-4 mt-4 font-sans">
+                              <div className="border-r border-slate-100 pr-2">
+                                <span className="text-[9px] text-[#737686] font-bold uppercase tracking-wider block">Base ({previousComp ? `${previousComp.mesNome}/${String(previousComp.ano).slice(-2)}` : 'N/A'})</span>
+                                <span className="text-sm font-bold text-slate-500 block mt-1">{previousComp ? formatMoney(previousComp.faturamentoLiquido) : '------'}</span>
+                              </div>
+                              <div className="pl-2">
+                                <span className="text-[9px] text-[#004ac6] font-bold uppercase tracking-wider block">Comparativo ({currentComp.mesNome}/{String(currentComp.ano).slice(-2)})</span>
+                                <span className="text-base font-black text-[#0b1c30] block mt-1">{formatMoney(currentComp.faturamentoLiquido)}</span>
+                              </div>
                             </div>
                           </div>
-                          <div className="mt-4 pt-4 border-t border-gray-100 flex justify-between items-center text-xs font-bold text-[#434655]">
-                            <div>
-                              <span className="opacity-75 block text-[10px] uppercase">Mês Anterior ({previousComp ? previousComp.mesNome : 'N/A'})</span>
-                              <span>{previousComp ? formatMoney(previousComp.faturamentoLiquido) : '------'}</span>
-                            </div>
-                            <div className="text-right">
-                              <span className="opacity-75 block text-[10px] uppercase">Diferença</span>
-                              <span className={!previousComp ? 'text-gray-400' : (currentComp.faturamentoLiquido - (previousComp?.faturamentoLiquido || 0) >= 0 ? 'text-[#00714d]' : 'text-rose-600')}>
-                                {formatDiffMoney(currentComp.faturamentoLiquido, previousComp ? previousComp.faturamentoLiquido : null)}
-                              </span>
-                            </div>
+
+                          <div className="mt-4 pt-4 border-t border-slate-100 flex justify-between items-center text-[11px] font-bold text-[#434655]">
+                            <span className="opacity-75 font-semibold">Diferença Total:</span>
+                            <span className={previousComp === null ? 'text-gray-400' : (compMetrics.diffFaturamentoLiquido >= 0 ? 'text-[#00714d]' : 'text-rose-600')}>
+                              {previousComp ? formatDiffMoney(currentComp.faturamentoLiquido, previousComp.faturamentoLiquido) : '------'}
+                            </span>
                           </div>
                         </div>
 
                         {/* KPI 2: Faturamento Bruto */}
-                        <div className="bg-white p-6 border-l-4 border-l-[#004ac6] border font-sans border-[#c3c6d7]/30 rounded-2xl shadow-xs hover:shadow-md transition-all">
-                          <div className="flex justify-between items-start">
-                            <div>
-                              <span className="text-[11px] font-bold text-[#737686] uppercase tracking-wider block">Faturamento Bruto</span>
-                              <h4 className="text-xl font-black text-[#0b1c30] mt-1.5">{formatMoney(currentComp.faturamentoBruto)}</h4>
+                        <div className="bg-white p-6 border border-[#c3c6d7]/35 rounded-2xl shadow-xs hover:shadow-md transition-all flex flex-col justify-between">
+                          <div>
+                            <div className="flex justify-between items-start">
+                              <span className="text-[10px] font-black text-[#737686] uppercase tracking-wider block">Faturamento Bruto</span>
+                              <div className={`px-2.5 py-1 rounded-full text-[10px] font-extrabold flex items-center gap-1 ${
+                                currentComp.faturamentoBruto === (previousComp?.faturamentoBruto || 0) ? 'bg-gray-100 text-gray-500' :
+                                compMetrics.varFaturamentoBruto >= 0 ? 'bg-[#6cf8bb]/15 text-[#00714d]' : 'bg-rose-500/10 text-rose-600'
+                              }`}>
+                                {previousComp ? formatPercent(compMetrics.varFaturamentoBruto) : '------'}
+                              </div>
                             </div>
-                            <div className={`px-2.5 py-1 rounded-full text-xs font-extrabold flex items-center gap-1 ${
-                              !previousComp ? 'bg-gray-100 text-gray-500' :
-                              currentComp.varFaturamentoBruto >= 0 ? 'bg-[#6cf8bb]/15 text-[#00714d]' : 'bg-rose-500/10 text-rose-600'
-                            }`}>
-                              {previousComp ? formatPercent(currentComp.varFaturamentoBruto) : 'Início'}
+                            
+                            <div className="grid grid-cols-2 gap-4 mt-4 font-sans">
+                              <div className="border-r border-slate-100 pr-2">
+                                <span className="text-[9px] text-[#737686] font-bold uppercase tracking-wider block">Base ({previousComp ? `${previousComp.mesNome}/${String(previousComp.ano).slice(-2)}` : 'N/A'})</span>
+                                <span className="text-sm font-bold text-slate-500 block mt-1">{previousComp ? formatMoney(previousComp.faturamentoBruto) : '------'}</span>
+                              </div>
+                              <div className="pl-2">
+                                <span className="text-[9px] text-[#004ac6] font-bold uppercase tracking-wider block">Comparativo ({currentComp.mesNome}/{String(currentComp.ano).slice(-2)})</span>
+                                <span className="text-base font-black text-[#0b1c30] block mt-1">{formatMoney(currentComp.faturamentoBruto)}</span>
+                              </div>
                             </div>
                           </div>
-                          <div className="mt-4 pt-4 border-t border-gray-100 flex justify-between items-center text-xs font-bold text-[#434655]">
-                            <div>
-                              <span className="opacity-75 block text-[10px] uppercase">Mês Anterior ({previousComp ? previousComp.mesNome : 'N/A'})</span>
-                              <span>{previousComp ? formatMoney(previousComp.faturamentoBruto) : '------'}</span>
-                            </div>
-                            <div className="text-right">
-                              <span className="opacity-75 block text-[10px] uppercase">Diferença</span>
-                              <span className={!previousComp ? 'text-gray-400' : (currentComp.faturamentoBruto - (previousComp?.faturamentoBruto || 0) >= 0 ? 'text-[#00714d]' : 'text-rose-600')}>
-                                {formatDiffMoney(currentComp.faturamentoBruto, previousComp ? previousComp.faturamentoBruto : null)}
-                              </span>
-                            </div>
+
+                          <div className="mt-4 pt-4 border-t border-slate-100 flex justify-between items-center text-[11px] font-bold text-[#434655]">
+                            <span className="opacity-75 font-semibold">Diferença Total:</span>
+                            <span className={previousComp === null ? 'text-gray-400' : (compMetrics.diffFaturamentoBruto >= 0 ? 'text-[#00714d]' : 'text-rose-600')}>
+                              {previousComp ? formatDiffMoney(currentComp.faturamentoBruto, previousComp.faturamentoBruto) : '------'}
+                            </span>
                           </div>
                         </div>
 
                         {/* KPI 3: Despesa Oficina */}
-                        <div className="bg-white p-6 border-l-4 border-l-rose-500 border font-sans border-[#c3c6d7]/30 rounded-2xl shadow-xs hover:shadow-md transition-all">
-                          <div className="flex justify-between items-start">
-                            <div>
-                              <span className="text-[11px] font-bold text-[#737686] uppercase tracking-wider block">Despesas Oficina</span>
-                              <h4 className="text-xl font-black text-[#0b1c30] mt-1.5">{formatMoney(currentComp.despesaOficina)}</h4>
+                        <div className="bg-white p-6 border border-[#c3c6d7]/35 rounded-2xl shadow-xs hover:shadow-md transition-all flex flex-col justify-between">
+                          <div>
+                            <div className="flex justify-between items-start">
+                              <span className="text-[10px] font-black text-[#737686] uppercase tracking-wider block">Despesas Oficina</span>
+                              <div className={`px-2.5 py-1 rounded-full text-[10px] font-extrabold flex items-center gap-1 ${
+                                currentComp.despesaOficina === (previousComp?.despesaOficina || 0) ? 'bg-gray-100 text-gray-500' :
+                                compMetrics.varDespesaOficina <= 0 ? 'bg-[#6cf8bb]/15 text-[#00714d]' : 'bg-rose-500/10 text-rose-600'
+                              }`}>
+                                {previousComp ? formatPercent(compMetrics.varDespesaOficina) : '------'}
+                              </div>
                             </div>
-                            {/* For expense, we want a low value, so increase (positive %) is bad (shown in red) and decrease is good (shown in green) */}
-                            <div className={`px-2.5 py-1 rounded-full text-xs font-extrabold flex items-center gap-1 ${
-                              !previousComp ? 'bg-gray-100 text-gray-500' :
-                              currentComp.varDespesaOficina <= 0 ? 'bg-[#6cf8bb]/15 text-[#00714d]' : 'bg-rose-500/10 text-rose-600'
-                            }`}>
-                              {previousComp ? formatPercent(currentComp.varDespesaOficina) : 'Início'}
+                            
+                            <div className="grid grid-cols-2 gap-4 mt-4 font-sans">
+                              <div className="border-r border-slate-100 pr-2">
+                                <span className="text-[9px] text-[#737686] font-bold uppercase tracking-wider block">Base ({previousComp ? `${previousComp.mesNome}/${String(previousComp.ano).slice(-2)}` : 'N/A'})</span>
+                                <span className="text-sm font-bold text-slate-500 block mt-1">{previousComp ? formatMoney(previousComp.despesaOficina) : '------'}</span>
+                              </div>
+                              <div className="pl-2">
+                                <span className="text-[9px] text-[#ab0b1c] font-bold uppercase tracking-wider block">Comparativo ({currentComp.mesNome}/{String(currentComp.ano).slice(-2)})</span>
+                                <span className="text-base font-black text-[#0b1c30] block mt-1">{formatMoney(currentComp.despesaOficina)}</span>
+                              </div>
                             </div>
                           </div>
-                          <div className="mt-4 pt-4 border-t border-gray-100 flex justify-between items-center text-xs font-bold text-[#434655]">
-                            <div>
-                              <span className="opacity-75 block text-[10px] uppercase">Mês Anterior ({previousComp ? previousComp.mesNome : 'N/A'})</span>
-                              <span>{previousComp ? formatMoney(previousComp.despesaOficina) : '------'}</span>
-                            </div>
-                            <div className="text-right">
-                              <span className="opacity-75 block text-[10px] uppercase">Diferença</span>
-                              <span className={!previousComp ? 'text-gray-400' : (currentComp.despesaOficina - (previousComp?.despesaOficina || 0) <= 0 ? 'text-[#00714d]' : 'text-rose-600')}>
-                                {formatDiffMoney(currentComp.despesaOficina, previousComp ? previousComp.despesaOficina : null)}
-                              </span>
-                            </div>
+
+                          <div className="mt-4 pt-4 border-t border-slate-100 flex justify-between items-center text-[11px] font-bold text-[#434655]">
+                            <span className="opacity-75 font-semibold">Diferença Total:</span>
+                            <span className={previousComp === null ? 'text-gray-400' : (compMetrics.diffDespesaOficina <= 0 ? 'text-[#00714d]' : 'text-rose-600')}>
+                              {previousComp ? formatDiffMoney(currentComp.despesaOficina, previousComp.despesaOficina) : '------'}
+                            </span>
                           </div>
                         </div>
 
                         {/* KPI 4: Viagens Realizadas */}
-                        <div className="bg-white p-6 border border-[#c3c6d7]/30 rounded-2xl shadow-xs hover:shadow-md transition-all font-sans">
-                          <div className="flex justify-between items-start">
-                            <div>
-                              <span className="text-[11px] font-bold text-[#737686] uppercase tracking-wider block">Total de Viagens (MoM)</span>
-                              <h4 className="text-xl font-black text-[#0b1c30] mt-1.5">{currentComp.qtdViagens} viagens</h4>
+                        <div className="bg-white p-6 border border-[#c3c6d7]/35 rounded-2xl shadow-xs hover:shadow-md transition-all flex flex-col justify-between font-sans">
+                          <div>
+                            <div className="flex justify-between items-start">
+                              <span className="text-[10px] font-black text-[#737686] uppercase tracking-wider block">Viagens Realizadas</span>
+                              <div className={`px-2.5 py-1 rounded-full text-[10px] font-extrabold flex items-center gap-1 ${
+                                currentComp.qtdViagens === (previousComp?.qtdViagens || 0) ? 'bg-gray-100 text-gray-500' :
+                                compMetrics.varQtdViagens >= 0 ? 'bg-[#6cf8bb]/15 text-[#00714d]' : 'bg-rose-500/10 text-rose-600'
+                              }`}>
+                                {previousComp ? formatPercent(compMetrics.varQtdViagens) : '------'}
+                              </div>
                             </div>
-                            <div className={`px-2.5 py-1 rounded-full text-xs font-extrabold flex items-center gap-1 ${
-                              !previousComp ? 'bg-gray-100 text-gray-500' :
-                              currentComp.varQtdViagens >= 0 ? 'bg-[#6cf8bb]/15 text-[#00714d]' : 'bg-rose-500/10 text-rose-600'
-                            }`}>
-                              {previousComp ? formatPercent(currentComp.varQtdViagens) : 'Início'}
+                            
+                            <div className="grid grid-cols-2 gap-4 mt-4 font-sans">
+                              <div className="border-r border-slate-100 pr-2">
+                                <span className="text-[9px] text-[#737686] font-bold uppercase tracking-wider block">Base ({previousComp ? `${previousComp.mesNome}/${String(previousComp.ano).slice(-2)}` : 'N/A'})</span>
+                                <span className="text-sm font-bold text-slate-500 block mt-1">{previousComp ? `${previousComp.qtdViagens} viag.` : '------'}</span>
+                              </div>
+                              <div className="pl-2">
+                                <span className="text-[9px] text-[#004ac6] font-bold uppercase tracking-wider block">Comparativo ({currentComp.mesNome}/{String(currentComp.ano).slice(-2)})</span>
+                                <span className="text-base font-black text-[#0b1c30] block mt-1">{currentComp.qtdViagens} viagens</span>
+                              </div>
                             </div>
                           </div>
-                          <div className="mt-4 pt-4 border-t border-gray-100 flex justify-between items-center text-xs font-bold text-[#434655]">
-                            <div>
-                              <span className="opacity-75 block text-[10px] uppercase">Mês Anterior ({previousComp ? previousComp.mesNome : 'N/A'})</span>
-                              <span>{previousComp ? `${previousComp.qtdViagens} viagens` : '------'}</span>
-                            </div>
-                            <div className="text-right">
-                              <span className="opacity-75 block text-[10px] uppercase">Diferença</span>
-                              <span className={!previousComp ? 'text-gray-400' : (currentComp.qtdViagens - (previousComp?.qtdViagens || 0) >= 0 ? 'text-[#00714d]' : 'text-rose-600')}>
-                                {formatDiffNum(currentComp.qtdViagens, previousComp ? previousComp.qtdViagens : null)}
-                              </span>
-                            </div>
+
+                          <div className="mt-4 pt-4 border-t border-slate-100 flex justify-between items-center text-[11px] font-bold text-[#434655]">
+                            <span className="opacity-75 font-semibold">Diferença Total:</span>
+                            <span className={previousComp === null ? 'text-gray-400' : (compMetrics.diffQtdViagens >= 0 ? 'text-[#00714d]' : 'text-rose-600')}>
+                              {previousComp ? formatDiffNum(currentComp.qtdViagens, previousComp.qtdViagens) + ' viagens' : '------'}
+                            </span>
                           </div>
                         </div>
 
                         {/* KPI 5: Veículos Ativos */}
-                        <div className="bg-white p-6 border border-[#c3c6d7]/30 rounded-2xl shadow-xs hover:shadow-md transition-all font-sans">
-                          <div className="flex justify-between items-start">
-                            <div>
-                              <span className="text-[11px] font-bold text-[#737686] uppercase tracking-wider block">Veículos Ativos (MoM)</span>
-                              <h4 className="text-xl font-black text-[#0b1c30] mt-1.5">{currentComp.qtdVeiculos} veículos</h4>
+                        <div className="bg-white p-6 border border-[#c3c6d7]/35 rounded-2xl shadow-xs hover:shadow-md transition-all flex flex-col justify-between font-sans font-sans">
+                          <div>
+                            <div className="flex justify-between items-start">
+                              <span className="text-[10px] font-black text-[#737686] uppercase tracking-wider block">Veículos Ativos</span>
+                              <div className={`px-2.5 py-1 rounded-full text-[10px] font-extrabold flex items-center gap-1 ${
+                                currentComp.qtdVeiculos === (previousComp?.qtdVeiculos || 0) ? 'bg-gray-100 text-gray-500' :
+                                compMetrics.varQtdVeiculos >= 0 ? 'bg-[#6cf8bb]/15 text-[#00714d]' : 'bg-rose-500/10 text-rose-600'
+                              }`}>
+                                {previousComp ? formatPercent(compMetrics.varQtdVeiculos) : '------'}
+                              </div>
                             </div>
-                            <div className={`px-2.5 py-1 rounded-full text-xs font-extrabold flex items-center gap-1 ${
-                              !previousComp ? 'bg-gray-100 text-gray-500' :
-                              currentComp.varQtdVeiculos >= 0 ? 'bg-[#6cf8bb]/15 text-[#00714d]' : 'bg-rose-500/10 text-rose-600'
-                            }`}>
-                              {previousComp ? formatPercent(currentComp.varQtdVeiculos) : 'Início'}
+                            
+                            <div className="grid grid-cols-2 gap-4 mt-4 font-sans">
+                              <div className="border-r border-slate-100 pr-2">
+                                <span className="text-[9px] text-[#737686] font-bold uppercase tracking-wider block">Base ({previousComp ? `${previousComp.mesNome}/${String(previousComp.ano).slice(-2)}` : 'N/A'})</span>
+                                <span className="text-sm font-bold text-slate-500 block mt-1">{previousComp ? `${previousComp.qtdVeiculos} veíc.` : '------'}</span>
+                              </div>
+                              <div className="pl-2">
+                                <span className="text-[9px] text-[#004ac6] font-bold uppercase tracking-wider block">Comparativo ({currentComp.mesNome}/{String(currentComp.ano).slice(-2)})</span>
+                                <span className="text-base font-black text-[#0b1c30] block mt-1">{currentComp.qtdVeiculos} veículos</span>
+                              </div>
                             </div>
                           </div>
-                          <div className="mt-4 pt-4 border-t border-gray-100 flex justify-between items-center text-xs font-bold text-[#434655]">
-                            <div>
-                              <span className="opacity-75 block text-[10px] uppercase">Mês Anterior ({previousComp ? previousComp.mesNome : 'N/A'})</span>
-                              <span>{previousComp ? `${previousComp.qtdVeiculos} veículos` : '------'}</span>
-                            </div>
-                            <div className="text-right">
-                              <span className="opacity-75 block text-[10px] uppercase">Diferença</span>
-                              <span className={!previousComp ? 'text-gray-400' : (currentComp.qtdVeiculos - (previousComp?.qtdVeiculos || 0) >= 0 ? 'text-[#00714d]' : 'text-rose-600')}>
-                                {formatDiffNum(currentComp.qtdVeiculos, previousComp ? previousComp.qtdVeiculos : null)}
-                              </span>
-                            </div>
+
+                          <div className="mt-4 pt-4 border-t border-slate-100 flex justify-between items-center text-[11px] font-bold text-[#434655]">
+                            <span className="opacity-75 font-semibold">Diferença Total:</span>
+                            <span className={previousComp === null ? 'text-gray-400' : (compMetrics.diffQtdVeiculos >= 0 ? 'text-[#00714d]' : 'text-rose-600')}>
+                              {previousComp ? formatDiffNum(currentComp.qtdVeiculos, previousComp.qtdVeiculos) + ' veículos' : '------'}
+                            </span>
                           </div>
                         </div>
 
-                        {/* KPI 6: Distância Km */}
-                        <div className="bg-white p-6 border border-[#c3c6d7]/30 rounded-2xl shadow-xs hover:shadow-md transition-all font-sans">
-                          <div className="flex justify-between items-start">
-                            <div>
-                              <span className="text-[11px] font-bold text-[#737686] uppercase tracking-wider block">Distância Total (MoM)</span>
-                              <h4 className="text-xl font-black text-[#0b1c30] mt-1.5">{currentComp.kmRodado.toLocaleString('pt-BR')} Km</h4>
+                        {/* KPI 6: Distância Total */}
+                        <div className="bg-white p-6 border border-[#c3c6d7]/35 rounded-2xl shadow-xs hover:shadow-md transition-all flex flex-col justify-between font-sans">
+                          <div>
+                            <div className="flex justify-between items-start">
+                              <span className="text-[10px] font-black text-[#737686] uppercase tracking-wider block">Distância Total</span>
+                              <div className={`px-2.5 py-1 rounded-full text-[10px] font-extrabold flex items-center gap-1 ${
+                                currentComp.kmRodado === (previousComp?.kmRodado || 0) ? 'bg-gray-100 text-gray-500' :
+                                compMetrics.varKmRodado >= 0 ? 'bg-[#6cf8bb]/15 text-[#00714d]' : 'bg-rose-500/10 text-rose-600'
+                              }`}>
+                                {previousComp ? formatPercent(compMetrics.varKmRodado) : '------'}
+                              </div>
                             </div>
-                            <div className={`px-2.5 py-1 rounded-full text-xs font-extrabold flex items-center gap-1 ${
-                              !previousComp ? 'bg-gray-100 text-gray-500' :
-                              currentComp.varKmRodado >= 0 ? 'bg-[#6cf8bb]/15 text-[#00714d]' : 'bg-rose-500/10 text-rose-600'
-                            }`}>
-                              {previousComp ? formatPercent(currentComp.varKmRodado) : 'Início'}
+                            
+                            <div className="grid grid-cols-2 gap-4 mt-4 font-sans">
+                              <div className="border-r border-slate-100 pr-2">
+                                <span className="text-[9px] text-[#737686] font-bold uppercase tracking-wider block">Base ({previousComp ? `${previousComp.mesNome}/${String(previousComp.ano).slice(-2)}` : 'N/A'})</span>
+                                <span className="text-sm font-bold text-slate-500 block mt-1">{previousComp ? `${previousComp.kmRodado.toLocaleString('pt-BR')} Km` : '------'}</span>
+                              </div>
+                              <div className="pl-2">
+                                <span className="text-[9px] text-[#004ac6] font-bold uppercase tracking-wider block">Comparativo ({currentComp.mesNome}/{String(currentComp.ano).slice(-2)})</span>
+                                <span className="text-base font-black text-[#0b1c30] block mt-1">{currentComp.kmRodado.toLocaleString('pt-BR')} Km</span>
+                              </div>
                             </div>
                           </div>
-                          <div className="mt-4 pt-4 border-t border-gray-100 flex justify-between items-center text-xs font-bold text-[#434655]">
-                            <div>
-                              <span className="opacity-75 block text-[10px] uppercase">Mês Anterior ({previousComp ? previousComp.mesNome : 'N/A'})</span>
-                              <span>{previousComp ? `${previousComp.kmRodado.toLocaleString('pt-BR')} Km` : '------'}</span>
-                            </div>
-                            <div className="text-right">
-                              <span className="opacity-75 block text-[10px] uppercase">Diferença</span>
-                              <span className={!previousComp ? 'text-gray-400' : (currentComp.kmRodado - (previousComp?.kmRodado || 0) >= 0 ? 'text-[#00714d]' : 'text-rose-600')}>
-                                {previousComp ? `${(currentComp.kmRodado - previousComp.kmRodado)>=0?'+':''}${(currentComp.kmRodado - previousComp.kmRodado).toLocaleString('pt-BR')} Km` : '------'}
-                              </span>
-                            </div>
+
+                          <div className="mt-4 pt-4 border-t border-slate-100 flex justify-between items-center text-[11px] font-bold text-[#434655]">
+                            <span className="opacity-75 font-semibold">Diferença Total:</span>
+                            <span className={previousComp === null ? 'text-gray-400' : (compMetrics.diffKmRodado >= 0 ? 'text-[#00714d]' : 'text-rose-600')}>
+                              {previousComp ? `${compMetrics.diffKmRodado >= 0 ? '+' : ''}${compMetrics.diffKmRodado.toLocaleString('pt-BR')} Km` : '------'}
+                            </span>
                           </div>
                         </div>
                       </div>
@@ -3474,40 +4628,272 @@ export default function Home() {
                         <h4 className="text-xs font-extrabold text-[#4a4c58] uppercase tracking-wider mb-4 flex items-center gap-1.5 font-sans">
                           📈 Evolução Mensal do Faturamento Líquido (R$)
                         </h4>
-                        <div className="h-44 w-full flex items-end gap-3.5 sm:gap-6 pt-6 px-4">
+                        <div className="w-full pt-2">
                           {(() => {
                             const maxVal = Math.max(...comparativoMensal.map(c => Math.max(c.faturamentoLiquido, 1)));
-                            return comparativoMensal.map((item) => {
-                              const heightPercent = Math.max(5, (item.faturamentoLiquido / maxVal) * 100);
-                              const isSelected = item.key === currentComp.key;
-                              return (
-                                <div
-                                  key={item.key}
-                                  onClick={() => setSelectedComparisonKey(item.key)}
-                                  className="flex-1 flex flex-col items-center gap-2 group cursor-pointer"
-                                >
-                                  <div className="relative w-full flex items-end justify-center h-28">
-                                    {/* Tooltip info on hover inside the chart bar */}
-                                    <div className="absolute bottom-full mb-2 bg-[#0b1c30] text-white text-[9px] font-bold px-2 py-1 rounded shadow-md opacity-0 group-hover:opacity-100 transition-opacity duration-150 pointer-events-none whitespace-nowrap z-10 flex flex-col items-center">
-                                      <span>Líquido: {formatMoney(item.faturamentoLiquido)}</span>
-                                      <span className="text-gray-400 opacity-90 text-[8px]">Bruto: {formatMoney(item.faturamentoBruto)}</span>
-                                    </div>
-                                    {/* Bar element */}
-                                    <div
-                                      className={`w-full max-w-[40px] rounded-t-lg transition-all duration-200 ${
-                                        isSelected
-                                          ? 'bg-gradient-to-t from-[#004ac6] to-[#0070f3] shadow-md shadow-[#004ac6]/20'
-                                          : 'bg-slate-200 group-hover:bg-slate-300'
-                                      }`}
-                                      style={{ height: `${heightPercent}%` }}
-                                    />
-                                  </div>
-                                  <span className={`text-[10px] font-black tracking-wider uppercase ${isSelected ? 'text-[#004ac6]' : 'text-slate-400'}`}>
-                                    {item.mesNome.substring(0, 3)}
-                                  </span>
-                                </div>
-                              );
+                            const minVal = Math.min(0, ...comparativoMensal.map(c => c.faturamentoLiquido));
+                            const range = maxVal - minVal;
+
+                            const paddingLeft = 135;
+                            const paddingRight = 135;
+                            const chartWidth = 1000;
+                            const chartHeight = 350;
+                            const plotWidth = chartWidth - paddingLeft - paddingRight;
+
+                            // Y range mapping: top = 125, bottom = 295 (leaves 125px on top for tooltip card rendering!)
+                            const yTop = 125;
+                            const yBottom = 295;
+                            const plotHeight = yBottom - yTop;
+
+                            const getY = (val: number) => {
+                              if (range === 0) return yBottom - plotHeight / 2;
+                              return yBottom - ((val - minVal) / range) * plotHeight;
+                            };
+
+                            const points = comparativoMensal.map((item, idx) => {
+                              const x = paddingLeft + (comparativoMensal.length > 1 ? (idx / (comparativoMensal.length - 1)) * plotWidth : plotWidth / 2);
+                              const y = getY(item.faturamentoLiquido);
+                              return { x, y, item, idx };
                             });
+
+                            // Generate smooth line path
+                            const pathD = points.length > 0 
+                              ? points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ')
+                              : '';
+
+                            // Generate smooth area path
+                            const areaD = points.length > 0
+                              ? `M ${points[0].x} ${yBottom} L ${points[0].x} ${points[0].y} ` +
+                                points.slice(1).map(p => `L ${p.x} ${p.y}`).join(' ') +
+                                ` L ${points[points.length - 1].x} ${yBottom} Z`
+                              : '';
+
+                            // Dash lines grid values (0, 25%, 50%, 75%, 100% of range)
+                            const gridCount = 4;
+                            const gridLines = Array.from({ length: gridCount + 1 }).map((_, i) => {
+                              const ratio = i / gridCount;
+                              const value = minVal + ratio * range;
+                              const y = yBottom - ratio * plotHeight;
+                              return { y, value };
+                            });
+
+                            return (
+                              <div className="relative w-full overflow-hidden">
+                                <svg
+                                  className="w-full h-auto overflow-visible select-none"
+                                  viewBox={`0 0 ${chartWidth} ${chartHeight}`}
+                                  preserveAspectRatio="xMidYMid meet"
+                                >
+                                  <defs>
+                                    <linearGradient id="chartAreaGradient" x1="0" y1="0" x2="0" y2="1">
+                                      <stop offset="0%" stopColor="#004ac6" stopOpacity="0.25"/>
+                                      <stop offset="100%" stopColor="#004ac6" stopOpacity="0.00"/>
+                                    </linearGradient>
+                                  </defs>
+
+                                  {/* Grid Lines */}
+                                  {gridLines.map((line, idx) => (
+                                    <g key={idx} className="opacity-40">
+                                      <line
+                                        x1={paddingLeft}
+                                        y1={line.y}
+                                        x2={paddingLeft + plotWidth}
+                                        y2={line.y}
+                                        stroke="#c3c6d7"
+                                        strokeWidth={1}
+                                        strokeDasharray="4 4"
+                                      />
+                                      <text
+                                        x={paddingLeft - 12}
+                                        y={line.y + 3.5}
+                                        textAnchor="end"
+                                        className="font-sans font-extrabold text-[11px] text-slate-500 fill-current"
+                                      >
+                                        {line.value >= 1000000
+                                          ? `R$ ${(line.value / 1000000).toFixed(1)}M`
+                                          : line.value >= 1000
+                                            ? `R$ ${(line.value / 1000).toFixed(0)}k`
+                                            : `R$ ${line.value}`}
+                                      </text>
+                                    </g>
+                                  ))}
+
+                                  {/* Solid Y Axis Line */}
+                                  <line
+                                    x1={paddingLeft}
+                                    y1={yTop - 10}
+                                    x2={paddingLeft}
+                                    y2={yBottom}
+                                    stroke="#c3c6d7"
+                                    strokeWidth={1.5}
+                                    className="opacity-50"
+                                  />
+
+                                  {/* Area filled underneath */}
+                                  {areaD && (
+                                    <path
+                                      d={areaD}
+                                      fill="url(#chartAreaGradient)"
+                                    />
+                                  )}
+
+                                  {/* Smooth Line Path */}
+                                  {pathD && (
+                                    <path
+                                      d={pathD}
+                                      fill="none"
+                                      stroke="#004ac6"
+                                      strokeWidth={3.5}
+                                      strokeLinecap="round"
+                                      strokeLinejoin="round"
+                                    />
+                                  )}
+
+                                  {/* Main solid baseline */}
+                                  <line
+                                    x1={paddingLeft}
+                                    y1={yBottom}
+                                    x2={paddingLeft + plotWidth}
+                                    y2={yBottom}
+                                    stroke="#c3c6d7"
+                                    strokeWidth={1.5}
+                                    className="opacity-60"
+                                  />
+
+                                  {/* Text Labels under base line */}
+                                  {points.map((p, idx) => {
+                                    const isSelected = p.item.key === currentComp.key;
+                                    return (
+                                      <text
+                                        key={idx}
+                                        x={p.x}
+                                        y={yBottom + 22}
+                                        textAnchor="middle"
+                                        className={`font-sans text-[11px] font-black tracking-wider uppercase select-none transition-colors duration-150 ${
+                                          isSelected ? 'fill-[#004ac6] text-[#004ac6]' : 'fill-[#82869a] text-[#82869a]'
+                                        }`}
+                                      >
+                                        {p.item.mesNome.substring(0, 3)}
+                                      </text>
+                                    );
+                                  })}
+
+                                  {/* Interactive Points and Tooltips */}
+                                  {points.map((p, idx) => {
+                                    const isSelected = p.item.key === currentComp.key;
+                                    const prevMonth = idx > 0 ? comparativoMensal[idx - 1] : null;
+                                    const diffVal = prevMonth ? p.item.faturamentoLiquido - prevMonth.faturamentoLiquido : 0;
+                                    const pctVal = prevMonth ? p.item.varFaturamentoLiquido : 0;
+
+                                    return (
+                                      <g
+                                        key={p.item.key}
+                                        className="group cursor-pointer"
+                                        onClick={() => {
+                                          setSelectedComparisonKey(p.item.key);
+                                          if (idx > 0) {
+                                            setComparisonBaseKey(comparativoMensal[idx - 1].key);
+                                          } else {
+                                            setComparisonBaseKey(p.item.key);
+                                          }
+                                          triggerToast(`📅 Comparando ${p.item.mesNome} de ${p.item.ano}`);
+                                        }}
+                                      >
+                                        {/* Invisible Rect for hovering anywhere in vertical slice */}
+                                        <rect
+                                          x={p.x - ((chartWidth - paddingLeft - paddingRight) / (points.length - 1 || 1)) / 2}
+                                          y={0}
+                                          width={(chartWidth - paddingLeft - paddingRight) / (points.length - 1 || 1)}
+                                          height={chartHeight}
+                                          fill="transparent"
+                                        />
+
+                                        {/* Vertical dashboard grid guide line on hover */}
+                                        <line
+                                          x1={p.x}
+                                          y1={yTop - 10}
+                                          x2={p.x}
+                                          y2={yBottom}
+                                          stroke="#004ac6"
+                                          strokeWidth={1.5}
+                                          strokeDasharray="4 4"
+                                          className="opacity-0 group-hover:opacity-45 transition-opacity duration-150 pointer-events-none"
+                                        />
+
+                                        {/* Outer glow aura on hover */}
+                                        <circle
+                                          cx={p.x}
+                                          cy={p.y}
+                                          r={12}
+                                          className="fill-[#004ac6] opacity-0 group-hover:opacity-15 transition-opacity duration-150 pointer-events-none"
+                                        />
+
+                                        {/* Colored circle point */}
+                                        <circle
+                                          cx={p.x}
+                                          cy={p.y}
+                                          r={isSelected ? 6.5 : 5}
+                                          className={`transition-all duration-150 stroke-[3px] pointer-events-none ${
+                                            isSelected
+                                              ? 'fill-white stroke-[#004ac6]'
+                                              : 'fill-[#c3c6d7] stroke-white group-hover:stroke-[#004ac6] group-hover:fill-white'
+                                          }`}
+                                        />
+
+                                        {/* Polish Tooltip Card wrapped in foreignObject */}
+                                        <foreignObject
+                                          x={p.x - 110}
+                                          y={p.y - 114}
+                                          width={220}
+                                          height={115}
+                                          className="overflow-visible pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity duration-200"
+                                        >
+                                          <div className="flex flex-col items-center">
+                                            <div className="bg-[#0b1c30] text-white px-3.5 py-2.5 rounded-2xl shadow-xl border border-slate-700/60 flex flex-col gap-1 w-full text-[10px] leading-tight font-sans">
+                                              <div className="font-extrabold text-[#6cf8bb] text-[10px] border-b border-slate-700/40 pb-1 mb-1 flex justify-between items-center">
+                                                <span>{p.item.mesNome.toUpperCase()} / {p.item.ano}</span>
+                                                <span className="text-[8px] text-slate-400 font-semibold uppercase font-mono">Ref. Líquido</span>
+                                              </div>
+                                              
+                                              {/* Valor */}
+                                              <div className="flex items-center justify-between">
+                                                <span className="text-[#a0a5c0] font-semibold">Valor Líquido:</span>
+                                                <span className="text-white font-black text-xs leading-none">{formatMoney(p.item.faturamentoLiquido)}</span>
+                                              </div>
+
+                                              {prevMonth ? (
+                                                <>
+                                                  {/* Diferença */}
+                                                  <div className="flex items-center justify-between border-t border-slate-800/40 pt-1 mt-0.5">
+                                                    <span className="text-[#a0a5c0] font-semibold">Diferença MoM:</span>
+                                                    <span className={`font-black tracking-tight ${diffVal >= 0 ? 'text-[#6cf8bb]' : 'text-rose-400'}`}>
+                                                      {formatDiffMoney(p.item.faturamentoLiquido, prevMonth.faturamentoLiquido)}
+                                                    </span>
+                                                  </div>
+                                                  {/* Porcentagem */}
+                                                  <div className="flex items-center justify-between pt-0.5">
+                                                    <span className="text-[#a0a5c0] font-semibold">Porcentagem:</span>
+                                                    <span className={`font-bold px-1.5 py-0.5 rounded text-[9px] ${pctVal >= 0 ? 'bg-[#6cf8bb]/15 text-[#6cf8bb]' : 'bg-rose-500/15 text-rose-400'}`}>
+                                                      {formatPercent(pctVal)}
+                                                    </span>
+                                                  </div>
+                                                </>
+                                              ) : (
+                                                <div className="text-[10px] text-slate-400 font-medium italic text-center w-full pt-1.5 border-t border-slate-800/40">
+                                                  Mês Base de Carga
+                                                </div>
+                                              )}
+                                            </div>
+                                            {/* Beautiful Little Tooltip cursor arrow */}
+                                            <div className="w-2.5 h-2.5 bg-[#0b1c30] rotate-45 -mt-1 border-r border-[#0b1c30]" />
+                                          </div>
+                                        </foreignObject>
+                                      </g>
+                                    );
+                                  })}
+                                </svg>
+                              </div>
+                            );
                           })()}
                         </div>
                       </div>
@@ -3546,7 +4932,14 @@ export default function Home() {
                                 return (
                                   <tr
                                     key={item.key}
-                                    onClick={() => setSelectedComparisonKey(item.key)}
+                                    onClick={() => {
+                                      setSelectedComparisonKey(item.key);
+                                      if (idx > 0) {
+                                        setComparisonBaseKey(comparativoMensal[idx - 1].key);
+                                      } else {
+                                        setComparisonBaseKey(item.key);
+                                      }
+                                    }}
                                     className={`hover:bg-gray-50/50 transition-colors cursor-pointer ${
                                       isSelected ? 'bg-blue-50/40 border-l-4 border-l-[#004ac6]' : ''
                                     }`}
@@ -3653,6 +5046,13 @@ export default function Home() {
         activeViagens={activeViagens}
         onClose={() => setSelectedDriverName(null)}
         triggerToast={triggerToast}
+      />
+
+      {/* Placas Detail Modal Component */}
+      <PlacasDetailModal
+        categoryLabel={selectedTripCategory}
+        rankings={rankings}
+        onClose={() => setSelectedTripCategory(null)}
       />
 
       {/* Settings Logo Manager Modal */}

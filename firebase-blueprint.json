@@ -48,6 +48,21 @@
         "recordCount": { "type": "number", "description": "Quantidade de registros totais importados" }
       },
       "required": ["id", "lastUploadedAt", "uploaderName", "fileName"]
+    },
+    "importLog": {
+      "title": "ImportLog",
+      "description": "Log de histórico de importações de planilhas realizadas no painel administrador",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "data": { "type": "string", "description": "Data do upload" },
+        "hora": { "type": "string", "description": "Hora do upload" },
+        "usuario": { "type": "string", "description": "Usuário ou email responsável" },
+        "nomePlanilha": { "type": "string", "description": "Nome do arquivo xlsx" },
+        "quantidadeRegistros": { "type": "number", "description": "Total de conhecimentos salvos" },
+        "timestamp": { "type": "number", "description": "Carimbo de tempo unix de ordenação" }
+      },
+      "required": ["data", "hora", "usuario", "nomePlanilha", "quantidadeRegistros", "timestamp"]
     }
   },
   "firestore": {
@@ -58,6 +73,10 @@
     "/metadata/{metadataId}": {
       "schema": "metadataLastUpdate",
       "description": "Coleção de metadados de atualização geral do sistema"
+    },
+    "/import_logs/{logId}": {
+      "schema": "importLog",
+      "description": "Históricos detalhados de cada importação gravada"
     }
   }
 }
