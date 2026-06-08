@@ -1097,6 +1097,10 @@ export default function Home() {
       })
       .catch((err) => {
         console.warn("Could not fetch elements from cloud, falling back to local copies:", err);
+        const errString = String(err?.message || err || "");
+        if (errString.includes("resource-exhausted") || errString.includes("quota") || errString.includes("Exceeded")) {
+          triggerToast("⚠️ Quota diária do banco Firestore excedida. Exibindo dados locais.");
+        }
         getViagensFromDB().then((saved) => {
           if (saved && saved.length > 0) {
             setViagens(saved);
@@ -3940,15 +3944,17 @@ export default function Home() {
                     <h3 className="text-xl font-bold mt-1 text-[#0b1c30]">Filtros e Detalhamento de Viagens</h3>
                   </div>
                   <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
-                    <button
-                      onClick={() => setIsLogoSettingsOpen(true)}
-                      className="bg-white text-[#004ac6] border border-[#004ac6] px-5 py-2.5 rounded-xl text-xs font-extrabold flex items-center gap-2 hover:bg-slate-50 shadow-sm w-full justify-center whitespace-nowrap"
-                    >
-                      <Upload className="w-4 h-4 text-[#004ac6]" /> Inserir Logotipo
-                    </button>
+                    {userProfile === 'Administrador' && (
+                      <button
+                        onClick={() => setIsLogoSettingsOpen(true)}
+                        className="bg-white text-[#004ac6] border border-[#004ac6] px-5 py-2.5 rounded-xl text-xs font-extrabold flex items-center gap-2 hover:bg-slate-50 shadow-sm w-full justify-center whitespace-nowrap cursor-pointer hover:border-blue-600 transition-all"
+                      >
+                        <Upload className="w-4 h-4 text-[#004ac6]" /> Inserir Logotipo
+                      </button>
+                    )}
                     <button
                       onClick={() => handleDownloadPDF('Despacho_Frota_Completo')}
-                      className="bg-[#004ac6] text-white px-5 py-2.5 rounded-xl text-xs font-extrabold flex items-center gap-2 hover:bg-opacity-95 shadow-md w-full justify-center"
+                      className="bg-[#004ac6] text-white px-5 py-2.5 rounded-xl text-xs font-extrabold flex items-center gap-2 hover:bg-opacity-95 shadow-md w-full justify-center cursor-pointer transition-colors"
                     >
                       <Download className="w-4 h-4" /> Exportar Planilha Excel/CSV
                     </button>
