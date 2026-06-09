@@ -54,6 +54,7 @@ export interface PlacaMetrics {
   conhecimentosCount?: number;
   statusMeta?: string;
   despesaOficinaTotal?: number;
+  targetMeta?: number;
 }
 
 export interface MotoristaMetrics {

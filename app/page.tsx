@@ -146,9 +146,9 @@ const PlateTooltip = ({ plateData, children }: { plateData: PlacaMetrics; childr
       <div className="flex justify-between items-center border-b border-white/10 pb-2 mb-2">
         <span className="text-xs font-black tracking-wider bg-[#004ac6] px-2 py-0.5 rounded text-white font-mono">{plateData.placa}</span>
         <span className={`text-[9px] font-black px-2 py-0.5 rounded-full flex items-center gap-1 ${
-          plateData.viagensCount >= 4 ? 'bg-[#6cf8bb]/15 text-[#6cf8bb]' : 'bg-red-500/15 text-red-300'
+          plateData.statusMeta === 'Dentro da Meta' ? 'bg-[#6cf8bb]/15 text-[#6cf8bb]' : 'bg-red-500/15 text-red-300'
         }`}>
-          {plateData.viagensCount >= 4 ? '🟢 DENTRO DA META' : '🔴 FORA DA META'}
+          {plateData.statusMeta === 'Dentro da Meta' ? '🟢 DENTRO DA META' : '🔴 FORA DA META'}
         </span>
       </div>
       <div className="space-y-1.5 text-[11px] font-bold">
@@ -950,7 +950,7 @@ const PlacasDetailModal = ({ categoryLabel, rankings, onClose }: PlacasDetailMod
                     const faturamentoBruto = r.faturamentoTotal;
                     const despesaOficina = r.despesaOficinaTotal || 0;
                     const faturamentoLiquido = faturamentoBruto - despesaOficina;
-                    const isInsideMeta = r.viagensCount >= 4;
+                    const isInsideMeta = r.statusMeta === 'Dentro da Meta';
 
                     return (
                       <tr key={r.placa} className="hover:bg-slate-50/70 transition-colors">
@@ -1015,10 +1015,10 @@ const PlacasDetailModal = ({ categoryLabel, rankings, onClose }: PlacasDetailMod
 };
 
 export default function Home() {
-  const [viagens, setViagens] = React.useState<Viagem[]>(INITIAL_VIAGENS);
+  const [viagens, setViagens] = React.useState<Viagem[]>([]);
   const [isSidebarOpen, setIsSidebarOpen] = React.useState(false);
   const [hoveredBarLabel, setHoveredBarLabel] = React.useState<string | null>(null);
-  const [activeTab, setActiveTab] = React.useState<'dashboard' | 'vehiculos' | 'rotas' | 'relatorios' | 'comparativo' | 'perfil'>('dashboard');
+  const [activeTab, setActiveTab] = React.useState<'dashboard' | 'vehiculos' | 'rotas' | 'relatorios' | 'comparativo' | 'perfil' | 'ranking_supervisao'>('dashboard');
   const [personalProfile, setPersonalProfile] = React.useState<UserProfileConfig>({
     nome: "Usuário Grupo Mateus",
     cargo: "Analista de Transporte",
@@ -1070,6 +1070,14 @@ export default function Home() {
   const [filterPlaca, setFilterPlaca] = React.useState('');
   const [filterMotorista, setFilterMotorista] = React.useState('ALL');
   const [filterSupervisao, setFilterSupervisao] = React.useState('ALL');
+
+  // New States for Ranking Supervisao Tab
+  const [rankingFilial, setRankingFilial] = React.useState('ALL');
+  const [rankingViewType, setRankingViewType] = React.useState<'bento' | 'tabela'>('bento');
+  const [rankingSearchQuery, setRankingSearchQuery] = React.useState('');
+  const [rankingSortField, setRankingSortField] = React.useState<'supervisor' | 'faturamento' | 'viagensCount' | 'platesDentro' | 'platesFora' | 'metaAproveitamento'>('faturamento');
+  const [rankingSortDirection, setRankingSortDirection] = React.useState<'asc' | 'desc'>('desc');
+  const [expandedSupervisor, setExpandedSupervisor] = React.useState<string | null>(null);
 
 
 
@@ -1332,10 +1340,9 @@ export default function Home() {
       return;
     }
 
-    if (confirm("Deseja realmente limpar todos os dados importados? O sistema será redefinido para a base inicial.")) {
-      setViagens(INITIAL_VIAGENS);
+    if (confirm("Deseja realmente limpar todos os dados importados? O painel ficará limpo aguardando novas importações.")) {
+      setViagens([]);
       await clearViagensFromDB();
-      await saveViagensToDB(INITIAL_VIAGENS);
       
       try {
         triggerToast("🔄 Redefinindo banco de dados na Nuvem (Firestore)...");
@@ -1497,21 +1504,163 @@ export default function Home() {
       list.forEach(v => {
         counts[v.placa] = (counts[v.placa] || 0) + 1;
       });
+      const activeMonthsCount = selectedMeses && selectedMeses.length > 0 
+        ? selectedMeses.length 
+        : mesesDrop.length;
+      const targetTrips = activeMonthsCount * 4;
+
       if (statusMetaFilter === 'DENTRO') {
-        list = list.filter(v => (counts[v.placa] || 0) >= 4);
+        list = list.filter(v => (counts[v.placa] || 0) >= targetTrips);
       } else if (statusMetaFilter === 'FORA') {
-        list = list.filter(v => (counts[v.placa] || 0) < 4);
+        list = list.filter(v => (counts[v.placa] || 0) < targetTrips);
       }
     }
 
     return list;
-  }, [viagens, selectedFiliais, selectedAnos, selectedMeses, selectedSupervisores, statusMetaFilter, searchQuery, searchMotorista, searchPlaca]);
+  }, [viagens, selectedFiliais, selectedAnos, selectedMeses, selectedSupervisores, statusMetaFilter, searchQuery, searchMotorista, searchPlaca, mesesDrop]);
+
+  const activeMonthsCount = React.useMemo(() => {
+    return selectedMeses && selectedMeses.length > 0 
+      ? selectedMeses.length 
+      : mesesDrop.length;
+  }, [selectedMeses, mesesDrop]);
 
   // Compute metrics dynamically
   const metrics = React.useMemo(() => computeExecutiveMetrics(activeViagens), [activeViagens]);
-  const rankings = React.useMemo(() => computePlacaMetrics(activeViagens), [activeViagens]);
+  const rankings = React.useMemo(() => computePlacaMetrics(activeViagens, viagens, activeMonthsCount), [activeViagens, viagens, activeMonthsCount]);
   const motoristas = React.useMemo(() => computeMotoristaMetrics(activeViagens), [activeViagens]);
   const rotas = React.useMemo(() => computeRouteMetrics(activeViagens), [activeViagens]);
+
+  const rankingViagens = React.useMemo(() => {
+    let list = viagens;
+    
+    // Filter by local Ranking Filial select
+    if (rankingFilial !== 'ALL') {
+      list = list.filter(v => (v.filial || '').trim().toUpperCase() === rankingFilial.toUpperCase().trim());
+    }
+    
+    // Filter by active years and months
+    if (selectedAnos && selectedAnos.length > 0) {
+      list = list.filter(v => selectedAnos.includes(String(v.ano || 2026)));
+    }
+    if (selectedMeses && selectedMeses.length > 0) {
+      list = list.filter(v => {
+        const vMes = v.mes ? v.mes.trim() : 'Janeiro';
+        return selectedMeses.some(sel => sel.trim().toUpperCase() === vMes.toUpperCase());
+      });
+    }
+    
+    return list;
+  }, [viagens, rankingFilial, selectedAnos, selectedMeses]);
+
+  const computedSupervisorRankings = React.useMemo(() => {
+    const rankingActiveMonthsCount = selectedMeses && selectedMeses.length > 0 
+      ? selectedMeses.length 
+      : mesesDrop.length;
+    // Compute plate rankings for the filtered subset of trips to get the statusMeta correctly evaluated
+    const plateMetrics = computePlacaMetrics(rankingViagens, viagens, rankingActiveMonthsCount);
+    
+    const supMap: Record<string, {
+      supervisor: string;
+      faturamento: number;
+      viagensCount: number;
+      platesDentro: number;
+      platesFora: number;
+      totalPlates: number;
+      platesList: { placa: string; statusMeta: string; faturamento: number; viagens: number }[];
+    }> = {};
+    
+    plateMetrics.forEach(p => {
+      const sup = p.supervisor || 'Sem Supervisor';
+      if (!supMap[sup]) {
+        supMap[sup] = {
+          supervisor: sup,
+          faturamento: 0,
+          viagensCount: 0,
+          platesDentro: 0,
+          platesFora: 0,
+          totalPlates: 0,
+          platesList: []
+        };
+      }
+      const sData = supMap[sup];
+      sData.faturamento += p.faturamentoTotal || 0;
+      sData.viagensCount += p.viagensCount || 0;
+      sData.totalPlates += 1;
+      if (p.statusMeta === 'Dentro da Meta') {
+        sData.platesDentro += 1;
+      } else {
+        sData.platesFora += 1;
+      }
+      sData.platesList.push({
+        placa: p.placa,
+        statusMeta: p.statusMeta || 'Fora da Meta',
+        faturamento: p.faturamentoTotal || 0,
+        viagens: p.viagensCount || 0
+      });
+    });
+    
+    const arr = Object.values(supMap).map(s => {
+      const metaAproveitamento = s.totalPlates > 0 
+        ? Math.round((s.platesDentro / s.totalPlates) * 100) 
+        : 0;
+      return {
+        ...s,
+        metaAproveitamento
+      };
+    });
+    
+    const byFaturamento = [...arr].sort((a, b) => b.faturamento - a.faturamento);
+    const byViagens = [...arr].sort((a, b) => b.viagensCount - a.viagensCount);
+    // Sort logic for compliance meta rankings:
+    // Sort by:
+    // 1st. Number of plates inside target (platesDentro) descending,
+    // 2nd. If equal, by % of target achievement (metaAproveitamento) descending,
+    // 3rd. If equal, by total faturamento descending.
+    const byMeta = [...arr].sort((a, b) => {
+      if (b.platesDentro !== a.platesDentro) {
+        return b.platesDentro - a.platesDentro;
+      }
+      if (b.metaAproveitamento !== a.metaAproveitamento) {
+        return b.metaAproveitamento - a.metaAproveitamento;
+      }
+      return b.faturamento - a.faturamento;
+    });
+    
+    return {
+      all: arr,
+      byFaturamento,
+      byViagens,
+      byMeta
+    };
+  }, [rankingViagens, viagens, selectedMeses, mesesDrop]);
+
+  const sortedAndFilteredAllSupervisors = React.useMemo(() => {
+    let result = [...computedSupervisorRankings.all];
+    
+    // Filter by name search
+    if (rankingSearchQuery.trim()) {
+      const q = rankingSearchQuery.toLowerCase();
+      result = result.filter(s => s.supervisor.toLowerCase().includes(q));
+    }
+    
+    // Sort by selected field and direction
+    result.sort((a: any, b: any) => {
+      let valA = a[rankingSortField];
+      let valB = b[rankingSortField];
+      
+      if (typeof valA === 'string') {
+        valA = valA.toUpperCase();
+        valB = valB.toUpperCase();
+      }
+      
+      if (valA < valB) return rankingSortDirection === 'asc' ? -1 : 1;
+      if (valA > valB) return rankingSortDirection === 'asc' ? 1 : -1;
+      return 0;
+    });
+    
+    return result;
+  }, [computedSupervisorRankings, rankingSearchQuery, rankingSortField, rankingSortDirection]);
 
   // ADICIONAR VALIDAÇÃO: Exibir temporariamente no console
   React.useEffect(() => {
@@ -1680,20 +1829,22 @@ export default function Home() {
       groups[sup].plateViagens[v.placa] = (groups[sup].plateViagens[v.placa] || 0) + 1;
     });
 
+    const currentTarget = activeMonthsCount * 4;
+
     return Object.keys(groups).map(sup => {
       const g = groups[sup];
       
       let dentro = 0;
       let fora = 0;
       Object.keys(g.plateViagens).forEach(p => {
-        if (g.plateViagens[p] >= 4) {
+        if (g.plateViagens[p] >= currentTarget) {
           dentro += 1;
         } else {
           fora += 1;
         }
       });
 
-      const supervisorMeta = g.plates.size * 4;
+      const supervisorMeta = g.plates.size * currentTarget;
       const metaAtingidaPercent = supervisorMeta > 0 ? Math.round((g.viagensCount / supervisorMeta) * 100) : 0;
       const faturamentoTotal = g.faturamento;
       const despesaOficinaTotal = g.despesaOficina;
@@ -1719,7 +1870,7 @@ export default function Home() {
       }
       return b.faturamentoLiquido - a.faturamentoLiquido;
     });
-  }, [activeViagens]);
+  }, [activeViagens, activeMonthsCount]);
 
   // List of unique supervisor names inside system
   const uniqueSupervisores = React.useMemo(() => {
@@ -2062,6 +2213,18 @@ export default function Home() {
             <TrendingUp className="w-4.5 h-4.5" />
             <span>Comparativo Mensal</span>
           </button>
+
+          <button
+            onClick={() => { updateActiveTab('ranking_supervisao'); updateSearchQuery(''); setIsSidebarOpen(false); }}
+            className={`w-full flex items-center gap-3.5 px-4 py-3 rounded-xl text-xs font-bold uppercase tracking-wider transition-all duration-150 ${
+              activeTab === 'ranking_supervisao'
+                ? 'bg-[#6cf8bb] text-[#00714d] shadow-sm font-extrabold'
+                : 'text-[#434655] hover:bg-gray-100 hover:text-[#0b1c30]'
+            }`}
+          >
+            <Award className="w-4.5 h-4.5" />
+            <span>Ranking Supervisão</span>
+          </button>
         </nav>
 
         {/* Technical Support and Settings group */}
@@ -2171,11 +2334,10 @@ export default function Home() {
               <Settings className="w-4 h-4" />
               Configuração Perfil
             </button>
-            <button
+             <button
               onClick={async () => {
                 await clearViagensFromDB();
-                setViagens(INITIAL_VIAGENS);
-                await saveViagensToDB(INITIAL_VIAGENS);
+                setViagens([]);
                 
                 // Reset states
                 setSelectedFiliais([]);
@@ -2765,7 +2927,7 @@ export default function Home() {
                         const topRankings = rankings.slice(0, 6);
                         const maxFaturamentoPlaca = Math.max(...topRankings.map(r => r.faturamentoTotal), 1);
                         return topRankings.map((r) => {
-                          const isHighPerf = r.viagensCount >= 4;
+                          const isHighPerf = r.statusMeta === 'Dentro da Meta';
                           const formattedVal = r.faturamentoTotal.toLocaleString('pt-BR', { maximumFractionDigits: 0 });
                           const barWidthPercent = (r.faturamentoTotal / maxFaturamentoPlaca) * 100;
                           return (
@@ -2840,14 +3002,14 @@ export default function Home() {
             {activeTab === 'vehiculos' && (() => {
               // Local variables and calculations on rendering
               const totalPlacas = rankings.length;
-              const dentroMetaCount = rankings.filter(r => r.viagensCount >= 4).length;
-              const foraMetaCount = rankings.filter(r => r.viagensCount < 4).length;
+              const dentroMetaCount = rankings.filter(r => r.statusMeta === 'Dentro da Meta').length;
+              const foraMetaCount = rankings.filter(r => r.statusMeta === 'Fora da Meta').length;
               const dentroMetaPercent = totalPlacas > 0 ? Math.round((dentroMetaCount / totalPlacas) * 100) : 0;
               const foraMetaPercent = totalPlacas > 0 ? Math.round((foraMetaCount / totalPlacas) * 100) : 0;
 
               // Trips-based target metrics
-              const tripsDentroCount = rankings.filter(r => r.viagensCount >= 4).reduce((sum, r) => sum + r.viagensCount, 0);
-              const tripsForaCount = rankings.filter(r => r.viagensCount < 4).reduce((sum, r) => sum + r.viagensCount, 0);
+              const tripsDentroCount = rankings.filter(r => r.statusMeta === 'Dentro da Meta').reduce((sum, r) => sum + r.viagensCount, 0);
+              const tripsForaCount = rankings.filter(r => r.statusMeta === 'Fora da Meta').reduce((sum, r) => sum + r.viagensCount, 0);
               const totalTripsCount = tripsDentroCount + tripsForaCount;
               const tripsDentroPercent = totalTripsCount > 0 ? Math.round((tripsDentroCount / totalTripsCount) * 100) : 0;
               const tripsForaPercent = totalTripsCount > 0 ? 100 - tripsDentroPercent : 0;
@@ -2871,20 +3033,48 @@ export default function Home() {
               };
 
               // Faturamento por status da meta
-              const faturamentoDentro = rankings.filter(r => r.viagensCount >= 4).reduce((sum, r) => sum + r.faturamentoTotal, 0);
-              const faturamentoFora = rankings.filter(r => r.viagensCount < 4).reduce((sum, r) => sum + r.faturamentoTotal, 0);
+              const faturamentoDentro = rankings.filter(r => r.statusMeta === 'Dentro da Meta').reduce((sum, r) => sum + r.faturamentoTotal, 0);
+              const faturamentoFora = rankings.filter(r => r.statusMeta !== 'Dentro da Meta').reduce((sum, r) => sum + r.faturamentoTotal, 0);
               const totalFaturamentoStatus = faturamentoDentro + faturamentoFora;
 
               const percentDentroFat = totalFaturamentoStatus > 0 ? (faturamentoDentro / totalFaturamentoStatus) * 100 : 0;
               const percentForaFat = totalFaturamentoStatus > 0 ? (faturamentoFora / totalFaturamentoStatus) * 100 : 0;
 
               // Distribution of trips counts
-              const c1 = rankings.filter(r => r.viagensCount === 1).length;
-              const c2 = rankings.filter(r => r.viagensCount === 2).length;
-              const c3 = rankings.filter(r => r.viagensCount === 3).length;
-              const c4 = rankings.filter(r => r.viagensCount === 4).length;
-              const c5 = rankings.filter(r => r.viagensCount >= 5).length;
-              const totalForDist = rankings.length || 1;
+              const comboGroups: Record<string, Set<string>> = {};
+              activeViagens.forEach(v => {
+                const p = (v.placa || '').trim().toUpperCase();
+                if (!p) return;
+                const f = (v.filial || 'Filial São Luís').trim().toUpperCase();
+                const m = (v.mes || 'Maio').trim().toUpperCase();
+                const a = String(v.ano || '');
+                const comboKey = `${p} | ${f} | ${m} | ${a}`;
+                
+                if (!comboGroups[comboKey]) {
+                  comboGroups[comboKey] = new Set<string>();
+                }
+                const conId = (v.conhecimento || v.id || '').trim();
+                if (conId) {
+                  comboGroups[comboKey].add(conId);
+                }
+              });
+
+              let c1 = 0;
+              let c2 = 0;
+              let c3 = 0;
+              let c4 = 0;
+              let c5 = 0;
+
+              Object.values(comboGroups).forEach(conhecimentosSet => {
+                const count = conhecimentosSet.size;
+                if (count === 1) c1++;
+                else if (count === 2) c2++;
+                else if (count === 3) c3++;
+                else if (count === 4) c4++;
+                else if (count >= 5) c5++;
+              });
+
+              const totalForDist = c1 + c2 + c3 + c4 + c5 || 1;
 
               const barData = [
                 { label: '1 viagem', count: c1, percent: ((c1 / totalForDist) * 100).toFixed(1) },
@@ -3468,7 +3658,7 @@ export default function Home() {
                           ) : (
                             paginatedRankings.map((r, idx) => {
                               const overallPos = (currentPageClamped - 1) * rankingsPageSize + idx + 1;
-                              const isMetaDone = r.viagensCount >= 4;
+                              const isMetaDone = r.statusMeta === 'Dentro da Meta';
                               
                               const associatedViagens = viagens.filter(v => v.placa === r.placa);
                               const lastRoute = associatedViagens[0]?.rota || 'Sem rota programada';
@@ -3494,8 +3684,8 @@ export default function Home() {
                                       </span>
                                     </PlateTooltip>
                                   </td>
-                                  <td className="px-4 py-3.5 text-slate-600 font-bold uppercase max-w-[120px] truncate" title={r.supervisor || 'LEONAN'}>
-                                    {r.supervisor || 'LEONAN'}
+                                  <td className="px-4 py-3.5 text-slate-600 font-bold uppercase max-w-[120px] truncate" title={r.supervisor || 'Sem Supervisor'}>
+                                    {r.supervisor || 'Sem Supervisor'}
                                   </td>
                                   <td className="px-4 py-3.5 text-slate-600 font-bold uppercase max-w-[160px] truncate" title={r.motorista || 'Sem motorista'}>
                                     {r.motorista || 'Sem motorista'}
@@ -3507,7 +3697,7 @@ export default function Home() {
                                     {r.viagensCount}
                                   </td>
                                   <td className="px-4 py-3.5 text-center text-slate-400">
-                                    4
+                                    {r.targetMeta ?? 4}
                                   </td>
                                   <td className="px-4 py-3.5 text-center">
                                     <span className={`font-black ${isMetaDone ? 'text-emerald-600' : 'text-rose-500'}`}>
@@ -4175,7 +4365,7 @@ export default function Home() {
                           paginatedViagens.map((v) => {
                             // Find out if the plate of this trip is overall above target isMet
                             const plateRankData = rankings.find(r => r.placa === v.placa);
-                            const isMet = plateRankData ? plateRankData.viagensCount >= 4 : false;
+                            const isMet = plateRankData ? plateRankData.statusMeta === 'Dentro da Meta' : false;
 
                             return (
                               <tr key={v.id} className="hover:bg-gray-50/50 transition-colors">
@@ -5035,6 +5225,804 @@ export default function Home() {
                     </div>
                   );
                 })()}
+              </motion.div>
+            )}
+
+            {activeTab === 'ranking_supervisao' && (
+              <motion.div
+                initial={{ opacity: 0, y: 15 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -15 }}
+                transition={{ duration: 0.35, ease: "easeOut" }}
+                className="space-y-6 font-sans"
+              >
+                {/* Header Section */}
+                <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white p-6 rounded-2xl border border-[#c3c6d7]/30 shadow-3xs">
+                  <div>
+                    <span className="text-[10px] font-extrabold text-[#737686] uppercase tracking-widest flex items-center gap-1.5 leading-none">
+                      <Award className="w-4.5 h-4.5 text-amber-500 animate-pulse" /> Desempenho e Liderança
+                    </span>
+                    <h2 className="text-xl font-black text-[#0b1c30] mt-1.5 uppercase tracking-tight">
+                      Ranking de Supervisão por Filial
+                    </h2>
+                    <p className="text-xs font-medium text-[#737686] mt-1">
+                      Análise classificatória dos supervisores com base em faturamento, volume de viagens e conformidade de metas.
+                    </p>
+                  </div>
+                  
+                  {/* Local Controls */}
+                  <div className="flex flex-wrap items-center gap-3">
+                    {/* Filial selector */}
+                    <div className="flex flex-col gap-1">
+                      <label className="text-[10px] font-bold text-[#434655] uppercase tracking-wider">Filial do Ranking</label>
+                      <select
+                        value={rankingFilial}
+                        onChange={(e) => {
+                          setRankingFilial(e.target.value);
+                          setExpandedSupervisor(null);
+                        }}
+                        className="text-xs font-black text-[#0b1c30] bg-[#f8f9fc] border border-[#c3c6d7]/40 px-3 py-2 rounded-xl focus:outline-none focus:ring-1 focus:ring-[#004ac6] transition-all min-w-[200px]"
+                      >
+                        <option value="ALL">Todas as Filiais (Geral)</option>
+                        {filiaisDrop.map((fil: string) => (
+                          <option key={fil} value={fil}>{fil.toUpperCase()}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {/* View type switcher */}
+                    <div className="flex flex-col gap-1">
+                      <label className="text-[10px] font-bold text-[#434655] uppercase tracking-wider">Modo de Exibição</label>
+                      <div className="flex items-center bg-[#f8f9fc] border border-[#c3c6d7]/40 p-1 rounded-xl">
+                        <button
+                          type="button"
+                          onClick={() => setRankingViewType('bento')}
+                          className={`px-3 py-1 text-xs font-bold rounded-lg transition-all ${
+                            rankingViewType === 'bento'
+                              ? 'bg-white text-[#004ac6] shadow-3xs font-extrabold'
+                              : 'text-slate-500 hover:text-slate-800'
+                          }`}
+                        >
+                          Líderes (Bento)
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setRankingViewType('tabela')}
+                          className={`px-3 py-1 text-xs font-bold rounded-lg transition-all ${
+                            rankingViewType === 'tabela'
+                              ? 'bg-white text-[#004ac6] shadow-3xs font-extrabold'
+                              : 'text-slate-500 hover:text-slate-800'
+                          }`}
+                        >
+                          Tabela Geral
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </header>
+
+                {/* KPI Totalizers */}
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                  {(() => {
+                    const totalS = computedSupervisorRankings.all.length;
+                    const totalFat = computedSupervisorRankings.all.reduce((sum, s) => sum + s.faturamento, 0);
+                    const totalV = computedSupervisorRankings.all.reduce((sum, s) => sum + s.viagensCount, 0);
+                    const totalP = computedSupervisorRankings.all.reduce((sum, s) => sum + s.totalPlates, 0);
+                    const totalPDentro = computedSupervisorRankings.all.reduce((sum, s) => sum + s.platesDentro, 0);
+                    const overallCompliance = totalP > 0 ? Math.round((totalPDentro / totalP) * 100) : 0;
+
+                    return (
+                      <>
+                        <div className="bg-white border border-[#c3c6d7]/30 p-5 rounded-2xl shadow-3xs flex flex-col justify-between">
+                          <span className="text-[10px] font-extrabold text-[#737686] uppercase tracking-wider block">Supervisores Ativos</span>
+                          <div className="mt-2.5">
+                            <span className="text-2xl font-black text-[#0b1c30] block">{totalS}</span>
+                            <span className="text-[10px] font-bold text-slate-500 mt-1 block">no filtro selecionado</span>
+                          </div>
+                        </div>
+
+                        <div className="bg-white border border-[#c3c6d7]/30 p-5 rounded-2xl shadow-3xs flex flex-col justify-between">
+                          <span className="text-[10px] font-extrabold text-[#737686] uppercase tracking-wider block">Faturamento Acumulado</span>
+                          <div className="mt-2.5">
+                            <span className="text-xl font-black text-emerald-600 truncate block">R$ {totalFat.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                            <span className="text-[10px] font-bold text-slate-500 mt-1 block">rendimento bruto gerido</span>
+                          </div>
+                        </div>
+
+                        <div className="bg-white border border-[#c3c6d7]/30 p-5 rounded-2xl shadow-3xs flex flex-col justify-between">
+                          <span className="text-[10px] font-extrabold text-[#737686] uppercase tracking-wider block">Total de Viagens</span>
+                          <div className="mt-2.5">
+                            <span className="text-2xl font-black text-[#004ac6] block">{totalV.toLocaleString('pt-BR')}</span>
+                            <span className="text-[10px] font-bold text-slate-500 mt-1 block">conhecimentos emitidos</span>
+                          </div>
+                        </div>
+
+                        <div className="bg-white border border-[#c3c6d7]/30 p-5 rounded-2xl shadow-3xs flex flex-col justify-between">
+                          <span className="text-[10px] font-extrabold text-[#737686] uppercase tracking-wider block">Aproveitamento de Placas</span>
+                          <div className="mt-2.5 flex items-baseline gap-2">
+                            <span className="text-2xl font-black text-blue-600 block">{overallCompliance}%</span>
+                            <span className="text-xs font-bold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded">
+                              {totalPDentro}/{totalP} dentro
+                            </span>
+                          </div>
+                          <span className="text-[10px] font-bold text-slate-400 mt-1 block">veículos atingindo metas</span>
+                        </div>
+                      </>
+                    );
+                  })()}
+                </div>
+
+                {/* Bento Grid Leaders View */}
+                {rankingViewType === 'bento' && (
+                  <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 animate-fade-in">
+                    
+                    {/* BENTO CARD 1: BY FATURAMENTO */}
+                    <div className="bg-white border border-[#c3c6d7]/35 rounded-2xl p-6 shadow-3xs space-y-5 flex flex-col">
+                      <div className="flex items-center justify-between border-b border-[#c3c6d7]/20 pb-3">
+                        <div className="flex items-center gap-2">
+                          <Award className="w-5 h-5 text-amber-500" />
+                          <div>
+                            <h3 className="text-xs font-black text-[#0b1c30] uppercase tracking-wider">Top 5 por Faturamento</h3>
+                            <p className="text-[10px] font-bold text-slate-400">Classificação por receita bruta total</p>
+                          </div>
+                        </div>
+                        <span className="text-[9px] font-black bg-amber-50 text-amber-600 px-2 py-0.5 rounded uppercase font-mono">RECONHECIMENTO</span>
+                      </div>
+
+                      {computedSupervisorRankings.byFaturamento.length > 0 ? (
+                        <div className="flex flex-col flex-1 justify-between">
+                          {/* Podium Visual Graphic */}
+                          {(() => {
+                            const list = computedSupervisorRankings.byFaturamento;
+                            const first = list[0];
+                            const second = list[1];
+                            const third = list[2];
+                            const fourth = list[3];
+                            const fifth = list[4];
+
+                            const valFmt = (sup: any) => `R$ ${sup.faturamento.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}`;
+
+                            return (
+                              <>
+                                <div className="flex items-end justify-between gap-1 h-44 bg-[#f8f9fc] rounded-2xl p-3 border border-[#c3c6d7]/15">
+                                  
+                                  {/* 2º Place (Left) */}
+                                  <div className="flex-1 flex flex-col items-center">
+                                    {second ? (
+                                      <>
+                                        <div className="flex flex-col items-center w-full mb-1">
+                                          <div className="w-8 h-8 rounded-full bg-slate-100 border-2 border-slate-300 flex items-center justify-center text-[10px] font-black text-slate-600 mb-0.5 select-none shadow-3xs">
+                                            {second.supervisor.split(' ').map((n: string) => n[0]).slice(0, 2).join('')}
+                                          </div>
+                                          <span className="text-[9px] font-black text-[#0b1c30] text-center truncate w-full uppercase" title={second.supervisor}>
+                                            {second.supervisor.split(' ')[0]}
+                                          </span>
+                                          <span className="text-[9px] font-bold text-[#004ac6] truncate w-full text-center">
+                                            {valFmt(second)}
+                                          </span>
+                                        </div>
+                                        <div className="w-full bg-gradient-to-t from-slate-200 to-slate-100 rounded-t-lg flex flex-col items-center justify-center h-14 relative border-t-2 border-slate-300 shadow-3xs">
+                                          <span className="text-xs">🥈</span>
+                                          <span className="text-[8px] font-black text-slate-500 uppercase tracking-wider font-mono">2º</span>
+                                        </div>
+                                      </>
+                                    ) : (
+                                      <div className="w-full h-14 bg-slate-100/30 rounded-t-lg border-t border-dashed border-slate-200 flex items-center justify-center text-slate-300 text-[8px] font-bold">Vazio</div>
+                                    )}
+                                  </div>
+
+                                  {/* 1º Place (Center) */}
+                                  <div className="flex-1 flex flex-col items-center relative -top-1">
+                                    {first ? (
+                                      <>
+                                        <div className="flex flex-col items-center w-full mb-1">
+                                          <div className="relative mb-0.5">
+                                            <span className="absolute -top-3 left-1/2 -translate-x-1/2 text-xs animate-bounce select-none">👑</span>
+                                            <div className="w-10 h-10 rounded-full bg-amber-50 border-2 border-amber-400 flex items-center justify-center text-xs font-black text-amber-700 shadow-3xs">
+                                              {first.supervisor.split(' ').map((n: string) => n[0]).slice(0, 2).join('')}
+                                            </div>
+                                          </div>
+                                          <span className="text-[10px] font-black text-amber-600 text-center truncate w-full uppercase" title={first.supervisor}>
+                                            {first.supervisor.split(' ')[0]}
+                                          </span>
+                                          <span className="text-[10px] font-black text-emerald-600 truncate w-full text-center">
+                                            {valFmt(first)}
+                                          </span>
+                                        </div>
+                                        <div className="w-full bg-gradient-to-t from-amber-200/50 to-amber-100/40 rounded-t-lg flex flex-col items-center justify-center h-20 relative border-t-2 border-amber-400 shadow-2xs">
+                                          <span className="text-sm select-none">🥇</span>
+                                          <span className="text-[8px] font-black text-amber-700 uppercase tracking-widest font-mono">1º</span>
+                                        </div>
+                                      </>
+                                    ) : (
+                                      <div className="w-full h-20 bg-slate-200/35 rounded-t-lg border-t border-dashed border-slate-300 flex items-center justify-center text-slate-300 text-[8px] font-bold">Vazio</div>
+                                    )}
+                                  </div>
+
+                                  {/* 3º Place (Right) */}
+                                  <div className="flex-1 flex flex-col items-center">
+                                    {third ? (
+                                      <>
+                                        <div className="flex flex-col items-center w-full mb-1">
+                                          <div className="w-8 h-8 rounded-full bg-amber-50/50 border-2 border-amber-600/20 flex items-center justify-center text-[10px] font-black text-amber-900/60 mb-0.5 select-none shadow-3xs">
+                                            {third.supervisor.split(' ').map((n: string) => n[0]).slice(0, 2).join('')}
+                                          </div>
+                                          <span className="text-[9px] font-black text-[#0b1c30] text-center truncate w-full uppercase" title={third.supervisor}>
+                                            {third.supervisor.split(' ')[0]}
+                                          </span>
+                                          <span className="text-[9px] font-bold text-slate-500 truncate w-full text-center">
+                                            {valFmt(third)}
+                                          </span>
+                                        </div>
+                                        <div className="w-full bg-gradient-to-t from-orange-100 to-orange-50/50 rounded-t-lg flex flex-col items-center justify-center h-10 relative border-t-2 border-orange-200 shadow-3xs">
+                                          <span className="text-xs">🥉</span>
+                                          <span className="text-[8px] font-black text-orange-600 uppercase tracking-wider font-mono">3º</span>
+                                        </div>
+                                      </>
+                                    ) : (
+                                      <div className="w-full h-10 bg-slate-100/30 rounded-t-lg border-t border-dashed border-slate-200 flex items-center justify-center text-slate-300 text-[8px] font-bold">Vazio</div>
+                                    )}
+                                  </div>
+
+                                </div>
+
+                                {/* Items 4 and 5 */}
+                                <div className="space-y-2 mt-4 pt-4 border-t border-slate-100">
+                                  {fourth && (
+                                    <div className="flex items-center justify-between p-2 rounded-xl bg-[#f8f9fc] border border-[#c3c6d7]/10 hover:border-[#004ac6]/20 transition-all">
+                                      <div className="flex items-center gap-2">
+                                        <span className="text-[9px] font-black bg-slate-100 text-slate-500 w-5 h-5 flex items-center justify-center rounded-md font-mono">4º</span>
+                                        <span className="text-xs font-black text-[#0b1c30] uppercase truncate max-w-[150px]">{fourth.supervisor}</span>
+                                      </div>
+                                      <span className="text-xs font-black text-slate-600">{valFmt(fourth)}</span>
+                                    </div>
+                                  )}
+                                  {fifth && (
+                                    <div className="flex items-center justify-between p-2 rounded-xl bg-[#f8f9fc] border border-[#c3c6d7]/10 hover:border-[#004ac6]/20 transition-all">
+                                      <div className="flex items-center gap-2">
+                                        <span className="text-[9px] font-black bg-slate-100 text-slate-500 w-5 h-5 flex items-center justify-center rounded-md font-mono">5º</span>
+                                        <span className="text-xs font-black text-[#0b1c30] uppercase truncate max-w-[150px]">{fifth.supervisor}</span>
+                                      </div>
+                                      <span className="text-xs font-black text-slate-600">{valFmt(fifth)}</span>
+                                    </div>
+                                  )}
+                                </div>
+                              </>
+                            );
+                          })()}
+                        </div>
+                      ) : (
+                        <div className="text-center py-12 text-slate-400 text-xs font-medium">Nenhum supervisor ativo no momento.</div>
+                      )}
+                    </div>
+
+                    {/* BENTO CARD 2: BY TRIP COUNT */}
+                    <div className="bg-white border border-[#c3c6d7]/35 rounded-2xl p-6 shadow-3xs space-y-5 flex flex-col">
+                      <div className="flex items-center justify-between border-b border-[#c3c6d7]/20 pb-3">
+                        <div className="flex items-center gap-2">
+                          <Truck className="w-5 h-5 text-blue-500" />
+                          <div>
+                            <h3 className="text-xs font-black text-[#0b1c30] uppercase tracking-wider">Top 5 por Viagens (QTD)</h3>
+                            <p className="text-[10px] font-bold text-slate-400">Classificação por volume operacional</p>
+                          </div>
+                        </div>
+                        <span className="text-[9px] font-black bg-blue-50 text-blue-600 px-2 py-0.5 rounded uppercase font-mono">FORÇA</span>
+                      </div>
+
+                      {computedSupervisorRankings.byViagens.length > 0 ? (
+                        <div className="flex flex-col flex-1 justify-between">
+                          {/* Podium Visual Graphic */}
+                          {(() => {
+                            const list = computedSupervisorRankings.byViagens;
+                            const first = list[0];
+                            const second = list[1];
+                            const third = list[2];
+                            const fourth = list[3];
+                            const fifth = list[4];
+
+                            const valFmt = (sup: any) => `${sup.viagensCount} viagens`;
+
+                            return (
+                              <>
+                                <div className="flex items-end justify-between gap-1 h-44 bg-[#f8f9fc] rounded-2xl p-3 border border-[#c3c6d7]/15">
+                                  
+                                  {/* 2º Place (Left) */}
+                                  <div className="flex-1 flex flex-col items-center">
+                                    {second ? (
+                                      <>
+                                        <div className="flex flex-col items-center w-full mb-1">
+                                          <div className="w-8 h-8 rounded-full bg-slate-100 border-2 border-slate-300 flex items-center justify-center text-[10px] font-black text-slate-600 mb-0.5 select-none shadow-3xs">
+                                            {second.supervisor.split(' ').map((n: string) => n[0]).slice(0, 2).join('')}
+                                          </div>
+                                          <span className="text-[9px] font-black text-[#0b1c30] text-center truncate w-full uppercase" title={second.supervisor}>
+                                            {second.supervisor.split(' ')[0]}
+                                          </span>
+                                          <span className="text-[9px] font-bold text-[#004ac6] truncate w-full text-center">
+                                            {valFmt(second)}
+                                          </span>
+                                        </div>
+                                        <div className="w-full bg-gradient-to-t from-slate-200 to-slate-100 rounded-t-lg flex flex-col items-center justify-center h-14 relative border-t-2 border-slate-300 shadow-3xs">
+                                          <span className="text-xs">🥈</span>
+                                          <span className="text-[8px] font-black text-slate-500 uppercase tracking-wider font-mono">2º</span>
+                                        </div>
+                                      </>
+                                    ) : (
+                                      <div className="w-full h-14 bg-slate-100/30 rounded-t-lg border-t border-dashed border-slate-200 flex items-center justify-center text-slate-300 text-[8px] font-bold">Vazio</div>
+                                    )}
+                                  </div>
+
+                                  {/* 1º Place (Center) */}
+                                  <div className="flex-1 flex flex-col items-center relative -top-1">
+                                    {first ? (
+                                      <>
+                                        <div className="flex flex-col items-center w-full mb-1">
+                                          <div className="relative mb-0.5">
+                                            <span className="absolute -top-3 left-1/2 -translate-x-1/2 text-xs animate-bounce select-none">👑</span>
+                                            <div className="w-10 h-10 rounded-full bg-amber-50 border-2 border-amber-400 flex items-center justify-center text-xs font-black text-amber-700 shadow-3xs">
+                                              {first.supervisor.split(' ').map((n: string) => n[0]).slice(0, 2).join('')}
+                                            </div>
+                                          </div>
+                                          <span className="text-[10px] font-black text-amber-600 text-center truncate w-full uppercase" title={first.supervisor}>
+                                            {first.supervisor.split(' ')[0]}
+                                          </span>
+                                          <span className="text-[10px] font-black text-blue-600 truncate w-full text-center font-bold">
+                                            {valFmt(first)}
+                                          </span>
+                                        </div>
+                                        <div className="w-full bg-gradient-to-t from-amber-200/50 to-amber-100/40 rounded-t-lg flex flex-col items-center justify-center h-20 relative border-t-2 border-amber-400 shadow-2xs">
+                                          <span className="text-sm select-none">🥇</span>
+                                          <span className="text-[8px] font-black text-amber-700 uppercase tracking-widest font-mono">1º</span>
+                                        </div>
+                                      </>
+                                    ) : (
+                                      <div className="w-full h-20 bg-slate-200/35 rounded-t-lg border-t border-dashed border-slate-300 flex items-center justify-center text-slate-300 text-[8px] font-bold">Vazio</div>
+                                    )}
+                                  </div>
+
+                                  {/* 3º Place (Right) */}
+                                  <div className="flex-1 flex flex-col items-center">
+                                    {third ? (
+                                      <>
+                                        <div className="flex flex-col items-center w-full mb-1">
+                                          <div className="w-8 h-8 rounded-full bg-amber-50/50 border-2 border-amber-600/20 flex items-center justify-center text-[10px] font-black text-amber-900/60 mb-0.5 select-none shadow-3xs">
+                                            {third.supervisor.split(' ').map((n: string) => n[0]).slice(0, 2).join('')}
+                                          </div>
+                                          <span className="text-[9px] font-black text-[#0b1c30] text-center truncate w-full uppercase" title={third.supervisor}>
+                                            {third.supervisor.split(' ')[0]}
+                                          </span>
+                                          <span className="text-[9px] font-bold text-slate-500 truncate w-full text-center">
+                                            {valFmt(third)}
+                                          </span>
+                                        </div>
+                                        <div className="w-full bg-gradient-to-t from-orange-100 to-orange-50/50 rounded-t-lg flex flex-col items-center justify-center h-10 relative border-t-2 border-orange-200 shadow-3xs">
+                                          <span className="text-xs">🥉</span>
+                                          <span className="text-[8px] font-black text-orange-600 uppercase tracking-wider font-mono">3º</span>
+                                        </div>
+                                      </>
+                                    ) : (
+                                      <div className="w-full h-10 bg-slate-100/30 rounded-t-lg border-t border-dashed border-slate-200 flex items-center justify-center text-slate-300 text-[8px] font-bold">Vazio</div>
+                                    )}
+                                  </div>
+
+                                </div>
+
+                                {/* Items 4 and 5 */}
+                                <div className="space-y-2 mt-4 pt-4 border-t border-slate-100">
+                                  {fourth && (
+                                    <div className="flex items-center justify-between p-2 rounded-xl bg-[#f8f9fc] border border-[#c3c6d7]/10 hover:border-[#004ac6]/20 transition-all">
+                                      <div className="flex items-center gap-2">
+                                        <span className="text-[9px] font-black bg-slate-100 text-slate-500 w-5 h-5 flex items-center justify-center rounded-md font-mono">4º</span>
+                                        <span className="text-xs font-black text-[#0b1c30] uppercase truncate max-w-[150px]">{fourth.supervisor}</span>
+                                      </div>
+                                      <span className="text-xs font-black text-slate-600">{valFmt(fourth)}</span>
+                                    </div>
+                                  )}
+                                  {fifth && (
+                                    <div className="flex items-center justify-between p-2 rounded-xl bg-[#f8f9fc] border border-[#c3c6d7]/10 hover:border-[#004ac6]/20 transition-all">
+                                      <div className="flex items-center gap-2">
+                                        <span className="text-[9px] font-black bg-slate-100 text-slate-500 w-5 h-5 flex items-center justify-center rounded-md font-mono">5º</span>
+                                        <span className="text-xs font-black text-[#0b1c30] uppercase truncate max-w-[150px]">{fifth.supervisor}</span>
+                                      </div>
+                                      <span className="text-xs font-black text-slate-600">{valFmt(fifth)}</span>
+                                    </div>
+                                  )}
+                                </div>
+                              </>
+                            );
+                          })()}
+                        </div>
+                      ) : (
+                        <div className="text-center py-12 text-slate-400 text-xs font-medium">Nenhum supervisor ativo no momento.</div>
+                      )}
+                    </div>
+
+                    {/* BENTO CARD 3: BY GOAL COMPLIANCE (DENTRO VS FORA DA META) */}
+                    <div className="bg-white border border-[#c3c6d7]/35 rounded-2xl p-6 shadow-3xs space-y-5 flex flex-col">
+                      <div className="flex items-center justify-between border-b border-[#c3c6d7]/20 pb-3">
+                        <div className="flex items-center gap-2">
+                          <CheckCircle2 className="w-5 h-5 text-emerald-500" />
+                          <div>
+                            <h3 className="text-xs font-black text-[#0b1c30] uppercase tracking-wider">Aproveitamento de Metas</h3>
+                            <p className="text-[10px] font-bold text-slate-400">Veículos dentro das viagens desejadas</p>
+                          </div>
+                        </div>
+                        <span className="text-[9px] font-black bg-emerald-50 text-emerald-600 px-2 py-0.5 rounded uppercase font-mono">CONFORMIDADE</span>
+                      </div>
+
+                      {computedSupervisorRankings.byMeta.length > 0 ? (
+                        <div className="flex flex-col flex-1 justify-between">
+                          {/* Podium Visual Graphic */}
+                          {(() => {
+                            const list = computedSupervisorRankings.byMeta;
+                            const first = list[0];
+                            const second = list[1];
+                            const third = list[2];
+                            const fourth = list[3];
+                            const fifth = list[4];
+
+                            const valFmt = (sup: any) => `${sup.metaAproveitamento}%`;
+
+                            return (
+                              <>
+                                <div className="flex items-end justify-between gap-1 h-44 bg-[#f8f9fc] rounded-2xl p-3 border border-[#c3c6d7]/15">
+                                  
+                                  {/* 2º Place (Left) */}
+                                  <div className="flex-1 flex flex-col items-center">
+                                    {second ? (
+                                      <>
+                                        <div className="flex flex-col items-center w-full mb-1">
+                                          <div className="w-8 h-8 rounded-full bg-slate-100 border-2 border-slate-300 flex items-center justify-center text-[10px] font-black text-slate-600 mb-0.5 select-none shadow-3xs">
+                                            {second.supervisor.split(' ').map((n: string) => n[0]).slice(0, 2).join('')}
+                                          </div>
+                                          <span className="text-[9px] font-black text-[#0b1c30] text-center truncate w-full uppercase" title={second.supervisor}>
+                                            {second.supervisor.split(' ')[0]}
+                                          </span>
+                                          <span className="text-[9px] font-bold text-[#004ac6] truncate w-full text-center">
+                                            {valFmt(second)}
+                                          </span>
+                                        </div>
+                                        <div className="w-full bg-gradient-to-t from-slate-200 to-slate-100 rounded-t-lg flex flex-col items-center justify-center h-14 relative border-t-2 border-slate-300 shadow-3xs">
+                                          <span className="text-xs">🥈</span>
+                                          <span className="text-[8px] font-black text-slate-500 uppercase tracking-wider font-mono">2º</span>
+                                        </div>
+                                      </>
+                                    ) : (
+                                      <div className="w-full h-14 bg-slate-100/30 rounded-t-lg border-t border-dashed border-slate-200 flex items-center justify-center text-slate-300 text-[8px] font-bold">Vazio</div>
+                                    )}
+                                  </div>
+
+                                  {/* 1º Place (Center) */}
+                                  <div className="flex-1 flex flex-col items-center relative -top-1">
+                                    {first ? (
+                                      <>
+                                        <div className="flex flex-col items-center w-full mb-1">
+                                          <div className="relative mb-0.5">
+                                            <span className="absolute -top-3 left-1/2 -translate-x-1/2 text-xs animate-bounce select-none">👑</span>
+                                            <div className="w-10 h-10 rounded-full bg-amber-50 border-2 border-amber-400 flex items-center justify-center text-xs font-black text-amber-700 shadow-3xs">
+                                              {first.supervisor.split(' ').map((n: string) => n[0]).slice(0, 2).join('')}
+                                            </div>
+                                          </div>
+                                          <span className="text-[10px] font-black text-amber-600 text-center truncate w-full uppercase" title={first.supervisor}>
+                                            {first.supervisor.split(' ')[0]}
+                                          </span>
+                                          <span className="text-[10px] font-black text-emerald-600 truncate w-full text-center font-bold">
+                                            {valFmt(first)}
+                                          </span>
+                                        </div>
+                                        <div className="w-full bg-gradient-to-t from-amber-200/50 to-amber-100/40 rounded-t-lg flex flex-col items-center justify-center h-20 relative border-t-2 border-amber-400 shadow-2xs">
+                                          <span className="text-sm select-none">🥇</span>
+                                          <span className="text-[8px] font-black text-amber-700 uppercase tracking-widest font-mono">1º</span>
+                                        </div>
+                                      </>
+                                    ) : (
+                                      <div className="w-full h-20 bg-slate-200/35 rounded-t-lg border-t border-dashed border-slate-300 flex items-center justify-center text-slate-300 text-[8px] font-bold">Vazio</div>
+                                    )}
+                                  </div>
+
+                                  {/* 3º Place (Right) */}
+                                  <div className="flex-1 flex flex-col items-center">
+                                    {third ? (
+                                      <>
+                                        <div className="flex flex-col items-center w-full mb-1">
+                                          <div className="w-8 h-8 rounded-full bg-amber-50/50 border-2 border-amber-600/20 flex items-center justify-center text-[10px] font-black text-amber-900/60 mb-0.5 select-none shadow-3xs">
+                                            {third.supervisor.split(' ').map((n: string) => n[0]).slice(0, 2).join('')}
+                                          </div>
+                                          <span className="text-[9px] font-black text-[#0b1c30] text-center truncate w-full uppercase" title={third.supervisor}>
+                                            {third.supervisor.split(' ')[0]}
+                                          </span>
+                                          <span className="text-[9px] font-bold text-slate-500 truncate w-full text-center">
+                                            {valFmt(third)}
+                                          </span>
+                                        </div>
+                                        <div className="w-full bg-gradient-to-t from-orange-100 to-orange-50/50 rounded-t-lg flex flex-col items-center justify-center h-10 relative border-t-2 border-orange-200 shadow-3xs">
+                                          <span className="text-xs">🥉</span>
+                                          <span className="text-[8px] font-black text-orange-600 uppercase tracking-wider font-mono">3º</span>
+                                        </div>
+                                      </>
+                                    ) : (
+                                      <div className="w-full h-10 bg-slate-100/30 rounded-t-lg border-t border-dashed border-slate-200 flex items-center justify-center text-slate-300 text-[8px] font-bold">Vazio</div>
+                                    )}
+                                  </div>
+
+                                </div>
+
+                                {/* Items 4 and 5 */}
+                                <div className="space-y-3 mt-4 pt-4 border-t border-slate-100">
+                                  {[fourth, fifth].map((sup, idx) => {
+                                    if (!sup) return null;
+                                    const rankNum = idx === 0 ? '4º' : '5º';
+                                    return (
+                                      <div key={sup.supervisor} className="flex flex-col gap-1 p-2 bg-[#f8f9fc] border border-[#c3c6d7]/15 rounded-xl hover:border-[#004ac6]/20 transition-all">
+                                        <div className="flex items-center justify-between">
+                                          <div className="flex items-center gap-2">
+                                            <span className="text-[9px] font-black bg-slate-100 text-slate-500 w-5 h-5 flex items-center justify-center rounded-md font-mono">{rankNum}</span>
+                                            <span className="text-xs font-black text-[#0b1c30] uppercase truncate max-w-[150px]">{sup.supervisor}</span>
+                                          </div>
+                                          <span className="text-xs font-black text-slate-700">
+                                            {sup.metaAproveitamento}%
+                                          </span>
+                                        </div>
+                                        {/* Horizontal Split bar */}
+                                        <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden flex">
+                                          {sup.platesDentro > 0 && (
+                                            <div className="bg-emerald-400 h-full" style={{ width: `${(sup.platesDentro / sup.totalPlates) * 100}%` }}></div>
+                                          )}
+                                          {sup.platesFora > 0 && (
+                                            <div className="bg-rose-400 h-full" style={{ width: `${(sup.platesFora / sup.totalPlates) * 100}%` }}></div>
+                                          )}
+                                        </div>
+                                        <div className="flex justify-between items-center text-[9px] font-bold text-slate-400">
+                                          <span className="text-emerald-600">{sup.platesDentro} dentro</span>
+                                          <span className="text-rose-500">{sup.platesFora} fora</span>
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              </>
+                            );
+                          })()}
+                        </div>
+                      ) : (
+                        <div className="text-center py-12 text-slate-400 text-xs font-medium">Nenhum supervisor ativo no momento.</div>
+                      )}
+                    </div>
+
+                  </div>
+                )}
+
+                {/* DETAILED LEADERBOARD TABLE OF ALL SUPERVISORS */}
+                <div className="bg-white border border-[#c3c6d7]/35 rounded-2xl shadow-3xs overflow-hidden flex flex-col">
+                  
+                  {/* Table Control Header */}
+                  <div className="p-5 border-b border-[#c3c6d7]/20 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-[#f8f9fc]/40">
+                    <div>
+                      <h3 className="text-xs font-extrabold text-[#0b1c30] uppercase tracking-wider">
+                        Lista Geral de Supervisão
+                      </h3>
+                      <p className="text-[10px] font-bold text-[#737686] mt-0.5">
+                        Exibindo {sortedAndFilteredAllSupervisors.length} registros. Clique em qualquer linha para ver os veículos sob supervisão.
+                      </p>
+                    </div>
+
+                    {/* Search inside table */}
+                    <div className="w-full sm:w-auto relative max-w-xs">
+                      <span className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
+                        <Search className="w-4 h-4" />
+                      </span>
+                      <input
+                        type="text"
+                        placeholder="Buscar supervisor..."
+                        value={rankingSearchQuery}
+                        onChange={(e) => setRankingSearchQuery(e.target.value)}
+                        className="w-full pl-9 pr-4 py-1.5 text-xs font-medium bg-white text-[#0b1c30] border border-[#c3c6d7]/40 rounded-xl focus:outline-none focus:ring-1 focus:ring-[#004ac6] transition-all"
+                      />
+                      {rankingSearchQuery && (
+                        <button
+                          onClick={() => setRankingSearchQuery('')}
+                          className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-[#0b1c30]"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Standard Interactive Table */}
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left border-collapse font-sans text-xs">
+                      <thead>
+                        <tr className="bg-slate-100/50 border-b border-[#c3c6d7]/30 text-[#434655] font-extrabold uppercase select-none tracking-wider text-[10px]">
+                          <th className="px-5 py-3.5">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (rankingSortField === 'supervisor') {
+                                  setRankingSortDirection(prev => prev === 'asc' ? 'desc' : 'asc');
+                                } else {
+                                  setRankingSortField('supervisor');
+                                  setRankingSortDirection('asc');
+                                }
+                              }}
+                              className="flex items-center gap-1 hover:text-[#0b1c30]"
+                            >
+                              Supervisor {rankingSortField === 'supervisor' && (rankingSortDirection === 'asc' ? '↑' : '↓')}
+                            </button>
+                          </th>
+                          <th className="px-5 py-3.5 text-right font-sans">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (rankingSortField === 'faturamento') {
+                                  setRankingSortDirection(prev => prev === 'asc' ? 'desc' : 'asc');
+                                } else {
+                                  setRankingSortField('faturamento');
+                                  setRankingSortDirection('desc');
+                                }
+                              }}
+                              className="flex items-center justify-end gap-1 hover:text-[#0b1c30] w-full"
+                            >
+                              Faturamento Bruto {rankingSortField === 'faturamento' && (rankingSortDirection === 'asc' ? '↑' : '↓')}
+                            </button>
+                          </th>
+                          <th className="px-5 py-3.5 text-center">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (rankingSortField === 'viagensCount') {
+                                  setRankingSortDirection(prev => prev === 'asc' ? 'desc' : 'asc');
+                                } else {
+                                  setRankingSortField('viagensCount');
+                                  setRankingSortDirection('desc');
+                                }
+                              }}
+                              className="flex items-center justify-center gap-1 hover:text-[#0b1c30] w-full"
+                            >
+                              Qtd de Viagens {rankingSortField === 'viagensCount' && (rankingSortDirection === 'asc' ? '↑' : '↓')}
+                            </button>
+                          </th>
+                          <th className="px-5 py-3.5 text-center">
+                            Aproveitamento de Placas (Dentro / Fora da Meta)
+                          </th>
+                          <th className="px-5 py-3.5 text-center">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (rankingSortField === 'metaAproveitamento') {
+                                  setRankingSortDirection(prev => prev === 'asc' ? 'desc' : 'asc');
+                                } else {
+                                  setRankingSortField('metaAproveitamento');
+                                  setRankingSortDirection('desc');
+                                }
+                              }}
+                              className="flex items-center justify-center gap-1 hover:text-[#0b1c30] w-full"
+                            >
+                              Aproveitamento (%) {rankingSortField === 'metaAproveitamento' && (rankingSortDirection === 'asc' ? '↑' : '↓')}
+                            </button>
+                          </th>
+                          <th className="px-5 py-3.5 text-center w-[120px]">Ações</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-[#c3c6d7]/15">
+                        {sortedAndFilteredAllSupervisors.map((row) => {
+                          const isExpanded = expandedSupervisor === row.supervisor;
+                          return (
+                            <React.Fragment key={row.supervisor}>
+                              <tr
+                                onClick={() => setExpandedSupervisor(isExpanded ? null : row.supervisor)}
+                                className={`group cursor-pointer hover:bg-slate-50/70 transition-colors ${
+                                  isExpanded ? 'bg-slate-50/50' : ''
+                                }`}
+                              >
+                                <td className="px-5 py-4 font-black text-[#0b1c30] uppercase flex items-center gap-2">
+                                  {isExpanded ? (
+                                    <ChevronDown className="w-4 h-4 text-slate-400 group-hover:text-slate-600 animate-fade-in" />
+                                  ) : (
+                                    <ChevronRight className="w-4 h-4 text-slate-400 group-hover:text-slate-600 animate-fade-in" />
+                                  )}
+                                  {row.supervisor}
+                                </td>
+                                <td className="px-5 py-4 text-right font-bold text-[#00714d] font-sans">
+                                  R$ {row.faturamento.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                </td>
+                                <td className="px-5 py-4 text-center font-bold text-[#0b1c30]">
+                                  {row.viagensCount}
+                                </td>
+                                <td className="px-5 py-4 text-center">
+                                  <div className="flex items-center justify-center gap-1.5">
+                                    <span className="px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 font-bold border border-emerald-100/30">
+                                      {row.platesDentro} na meta
+                                    </span>
+                                    <span className="px-2 py-0.5 rounded bg-rose-50 text-rose-700 font-bold border border-rose-100/30">
+                                      {row.platesFora} fora
+                                    </span>
+                                  </div>
+                                </td>
+                                <td className="px-5 py-4 text-center font-bold text-[#0b1c30]">
+                                  <div className="flex items-center justify-center gap-2">
+                                    <span className={`px-2 py-0.5 rounded text-[10px] font-black tracking-wide ${
+                                      row.metaAproveitamento >= 80 ? 'bg-emerald-500 text-white' : 
+                                      row.metaAproveitamento >= 50 ? 'bg-amber-500 text-white' : 'bg-rose-500 text-white'
+                                    }`}>
+                                      {row.metaAproveitamento}%
+                                    </span>
+                                  </div>
+                                </td>
+                                <td className="px-5 py-4 text-center">
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setExpandedSupervisor(isExpanded ? null : row.supervisor);
+                                    }}
+                                    className="text-[10px] font-black uppercase text-[#004ac6] hover:underline"
+                                  >
+                                    {isExpanded ? 'Ocultar' : 'Ver Detalhes'}
+                                  </button>
+                                </td>
+                              </tr>
+                              
+                              {/* Expanded sub-grid of plates */}
+                              {isExpanded && (
+                                <tr>
+                                  <td colSpan={6} className="bg-[#fcfdfe] p-5 shadow-inner border-y border-[#c3c6d7]/15">
+                                    <div className="space-y-3 pl-6">
+                                      <div className="flex items-center justify-between">
+                                        <h4 className="text-[10.5px] font-black text-[#535665] uppercase tracking-wider flex items-center gap-1.5">
+                                          📦 Placas Geridas por {row.supervisor} ({row.totalPlates} veículos)
+                                        </h4>
+                                        <span className="text-[9px] font-bold text-slate-400 italic">
+                                          Valores obtidos do fechamento de contas do período
+                                        </span>
+                                      </div>
+                                      
+                                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                                        {row.platesList.map((plt) => (
+                                          <div 
+                                            key={plt.placa} 
+                                            className="bg-white border border-[#c3c6d7]/20 p-3 rounded-xl flex items-center justify-between shadow-3xs"
+                                          >
+                                            <div className="space-y-1">
+                                              <span 
+                                                className="text-xs font-black bg-slate-100 text-[#0b1c30] px-2 py-0.5 rounded font-mono uppercase"
+                                              >
+                                                🚚 {plt.placa}
+                                              </span>
+                                              <div className="text-[9px] text-slate-400 font-medium font-sans">
+                                                Faturamento: <strong className="text-emerald-700">R$ {plt.faturamento.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}</strong>
+                                              </div>
+                                            </div>
+                                            <div className="text-right space-y-1">
+                                              <span className={`text-[9.5px] font-black px-1.5 py-0.5 rounded block text-center ${
+                                                plt.statusMeta === 'Dentro da Meta' ? 'bg-[#6cf8bb]/20 text-[#00714d]' : 'bg-rose-50 text-rose-600'
+                                              }`}>
+                                                {plt.statusMeta === 'Dentro da Meta' ? '🟢 COBERTO' : '🔴 PENDENTE'}
+                                              </span>
+                                              <div className="text-[9px] text-slate-500 font-bold block">
+                                                {plt.viagens} viagens
+                                              </div>
+                                            </div>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  </td>
+                                </tr>
+                              )}
+                            </React.Fragment>
+                          );
+                        })}
+                        {sortedAndFilteredAllSupervisors.length === 0 && (
+                          <tr>
+                            <td colSpan={6} className="px-5 py-10 text-center text-[#737686] font-medium animate-fade-in">
+                              Nenhum supervisor encontrado correspondente aos critérios de filtragem.
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
               </motion.div>
             )}
 

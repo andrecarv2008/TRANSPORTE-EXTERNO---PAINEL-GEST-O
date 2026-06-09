@@ -584,33 +584,51 @@ export function computeExecutiveMetrics(viagens: Viagem[]): ExecutiveMetrics {
     }
   });
 
+  // Calculate meta global: sum of targets for all active combinations of (placa, month, year, branch)
+  const activeCombinations = new Set<string>();
+  const plateTargetCombos: Record<string, Set<string>> = {};
+
+  viagens.forEach(v => {
+    const p = v.placa.trim().toUpperCase();
+    if (!p) return;
+    const m = localNormalizeMonthName(v.mes || 'Maio');
+    const f = (v.filial || 'Filial São Luís').trim().toUpperCase();
+    const a = String(v.ano || '');
+    activeCombinations.add(`${p} | ${m} | ${a} | ${f}`);
+
+    if (!plateTargetCombos[p]) {
+      plateTargetCombos[p] = new Set<string>();
+    }
+    plateTargetCombos[p].add(`${m} | ${a} | ${f}`);
+  });
+
   const totalPlacas = Object.keys(plateMonthConhecimentos).length;
-  const metaGlobal = totalPlacas * 4; // Target of 4 voyages per plate
+  const metaGlobal = activeCombinations.size * 4; // Target is 4 voyages per plate, per month, per branch
   
   let dentroMetaCount = 0;
   let foraMetaCount = 0;
-  let totalNormalizedViagensAcrossPlacas = 0;
   
   Object.keys(plateMonthConhecimentos).forEach(p => {
     const monthsObj = plateMonthConhecimentos[p];
     const activeMonths = Object.keys(monthsObj);
-    const activeMonthsCount = activeMonths.length || 1;
     let totalPlateTrips = 0;
     activeMonths.forEach(m => {
       totalPlateTrips += monthsObj[m].size;
     });
-    const normalizedTrips = Math.max(1, Math.round(totalPlateTrips / activeMonthsCount));
-    totalNormalizedViagensAcrossPlacas += normalizedTrips;
+
+    const combosCount = plateTargetCombos[p] ? plateTargetCombos[p].size : 1;
+    const targetTrips = combosCount * 4;
     
-    if (normalizedTrips >= 4) {
+    if (totalPlateTrips >= targetTrips) {
       dentroMetaCount++;
     } else {
       foraMetaCount++;
     }
   });
 
+  // Unique trip achievements based on "conhecimento" code
   const totalUniqueConhecimentos = new Set(viagens.map(v => (v.conhecimento || v.id || '').trim()).filter(Boolean)).size;
-  const percentMetaAtingida = metaGlobal > 0 ? Math.min(100, Math.round((totalNormalizedViagensAcrossPlacas / metaGlobal) * 100)) : 0;
+  const percentMetaAtingida = metaGlobal > 0 ? Math.round((totalUniqueConhecimentos / metaGlobal) * 100) : 0;
 
   const kmRodadoTotal = viagens.reduce((sum, v) => sum + v.kmRodado, 0);
   const despesaOficinaTotal = viagens.reduce((sum, v) => sum + (v.despesaOficina || 0), 0);
@@ -629,7 +647,57 @@ export function computeExecutiveMetrics(viagens: Viagem[]): ExecutiveMetrics {
 }
 
 // Compute plate ranking
-export function computePlacaMetrics(viagens: Viagem[]): PlacaMetrics[] {
+export function computePlacaMetrics(
+  viagens: Viagem[],
+  allViagens?: Viagem[],
+  forceMonthsCount?: number
+): PlacaMetrics[] {
+  const uniqueMonthsInViagens = new Set(viagens.map(v => localNormalizeMonthName(v.mes || 'Maio')));
+  const monthsCount = forceMonthsCount ?? (uniqueMonthsInViagens.size > 0 ? uniqueMonthsInViagens.size : 1);
+  const targetTrips = monthsCount * 4;
+
+  const lookupSource = allViagens || viagens;
+  const plateSupervisorMap: Record<string, string> = {};
+  const plateSupsGroup: Record<string, Record<string, number>> = {};
+  
+  lookupSource.forEach(v => {
+    const p = v.placa.trim().toUpperCase();
+    if (!p) return;
+    const sup = v.supervisao || 'Sem Supervisor';
+    if (!plateSupsGroup[p]) {
+      plateSupsGroup[p] = {};
+    }
+    plateSupsGroup[p][sup] = (plateSupsGroup[p][sup] || 0) + 1;
+  });
+
+  Object.keys(plateSupsGroup).forEach(p => {
+    const sups = plateSupsGroup[p];
+    let pSupervisor = 'Sem Supervisor';
+    const realSups = Object.keys(sups).filter(sup => {
+      const s = sup.toUpperCase().trim();
+      return s !== 'LEONAN' && s !== 'CAMINHAO PARADO' && s !== 'SEM SUPERVISOR' && s !== 'LEONAN BRAGA NONATO' && s !== '';
+    });
+    
+    if (realSups.length > 0) {
+      let maxSupCount = -1;
+      realSups.forEach(sup => {
+        if (sups[sup] > maxSupCount) {
+          maxSupCount = sups[sup];
+          pSupervisor = sup;
+        }
+      });
+    } else {
+      let maxSupCount = -1;
+      Object.keys(sups).forEach(sup => {
+        if (sups[sup] > maxSupCount) {
+          maxSupCount = sups[sup];
+          pSupervisor = sup;
+        }
+      });
+    }
+    plateSupervisorMap[p] = pSupervisor;
+  });
+
   const placaGroup: Record<string, {
     faturamento: number;
     kmTotal: number;
@@ -637,6 +705,7 @@ export function computePlacaMetrics(viagens: Viagem[]): PlacaMetrics[] {
     supervisores: Record<string, number>;
     motoristas: Record<string, number>;
     monthConhecimentos: Record<string, Set<string>>;
+    activeCombos: Set<string>;
   }> = {};
   
   viagens.forEach(v => {
@@ -649,7 +718,8 @@ export function computePlacaMetrics(viagens: Viagem[]): PlacaMetrics[] {
         despesaOficinaTotal: 0,
         supervisores: {},
         motoristas: {},
-        monthConhecimentos: {}
+        monthConhecimentos: {},
+        activeCombos: new Set<string>()
       };
     }
     const g = placaGroup[p];
@@ -664,6 +734,10 @@ export function computePlacaMetrics(viagens: Viagem[]): PlacaMetrics[] {
     g.motoristas[mot] = (g.motoristas[mot] || 0) + 1;
     
     const m = localNormalizeMonthName(v.mes || 'Maio');
+    const f = (v.filial || 'Filial São Luís').trim().toUpperCase();
+    const a = String(v.ano || '');
+    g.activeCombos.add(`${m} | ${a} | ${f}`);
+
     const conId = (v.conhecimento || v.id || '').trim();
     if (conId) {
       if (!g.monthConhecimentos[m]) {
@@ -683,20 +757,9 @@ export function computePlacaMetrics(viagens: Viagem[]): PlacaMetrics[] {
       totalUniqueCons += data.monthConhecimentos[m].size;
     });
     
-    const activeMonthsCount = activeMonths.length || 1;
-    const normalizedTrips = Math.max(1, Math.round(totalUniqueCons / activeMonthsCount));
+    const percentMeta = targetTrips > 0 ? Math.round((totalUniqueCons / targetTrips) * 100) : 0;
     
-    const percentMeta = Math.min(125, Math.round((normalizedTrips / 4) * 100));
-    
-    // Find principal supervisor (one with max trips)
-    let pSupervisor = 'Sem Supervisor';
-    let maxSupCount = -1;
-    Object.keys(data.supervisores).forEach(sup => {
-      if (data.supervisores[sup] > maxSupCount) {
-        maxSupCount = data.supervisores[sup];
-        pSupervisor = sup;
-      }
-    });
+    const pSupervisor = plateSupervisorMap[placa] || 'Sem Supervisor';
 
     // Find principal motorista
     let pMotorista = 'Sem Motorista';
@@ -710,15 +773,16 @@ export function computePlacaMetrics(viagens: Viagem[]): PlacaMetrics[] {
 
     return {
       placa,
-      viagensCount: normalizedTrips,
+      viagensCount: totalUniqueCons,
       faturamentoTotal: data.faturamento,
       percentMeta,
       supervisor: pSupervisor,
       motorista: pMotorista,
       kmRodadoTotal: data.kmTotal,
       conhecimentosCount: totalUniqueCons,
-      statusMeta: normalizedTrips >= 4 ? 'Dentro da Meta' : 'Fora da Meta',
-      despesaOficinaTotal: data.despesaOficinaTotal
+      statusMeta: totalUniqueCons >= targetTrips ? 'Dentro da Meta' : 'Fora da Meta',
+      despesaOficinaTotal: data.despesaOficinaTotal,
+      targetMeta: targetTrips
     };
   }).sort((a, b) => b.viagensCount - a.viagensCount || b.faturamentoTotal - a.faturamentoTotal);
 }

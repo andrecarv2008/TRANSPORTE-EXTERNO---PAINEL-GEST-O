@@ -45,21 +45,15 @@ export async function fetchViagensFromFirestore(): Promise<Viagem[]> {
     
     const docs: Viagem[] = [];
     querySnapshot.forEach((doc) => {
-      docs.push(doc.data() as Viagem);
-    });
-
-    if (docs.length === 0) {
-      console.log("Firestore voyages collection empty. Hydrating with INITIAL_VIAGENS...");
-      try {
-        await saveViagensToFirestore(INITIAL_VIAGENS, 'substituir', {
-          uploaderName: 'Sistema (Auto)',
-          fileName: 'Base_Inicial_Hidratada.xlsx',
-        });
-      } catch (err) {
-        console.warn("Could not auto-hydrate Firestore cloud database (user likely lacks write permissions). Falling back to local data.", err);
+      const data = doc.data() as Viagem;
+      if (data && data.supervisao) {
+        const supUpper = data.supervisao.trim().toUpperCase();
+        if (supUpper === 'LEONAN BRAGA NONATO' || supUpper.includes('LEONAN')) {
+          data.supervisao = 'LEONAN';
+        }
       }
-      return INITIAL_VIAGENS;
-    }
+      docs.push(data);
+    });
 
     return docs;
   } catch (error) {
@@ -117,7 +111,16 @@ export async function saveViagensToFirestore(
       const data: Record<string, any> = {};
       Object.entries(v).forEach(([key, value]) => {
         if (value !== undefined) {
-          data[key] = value;
+          if (key === 'supervisao' && typeof value === 'string') {
+            const supUpper = value.trim().toUpperCase();
+            if (supUpper === 'LEONAN BRAGA NONATO' || supUpper.includes('LEONAN')) {
+              data[key] = 'LEONAN';
+            } else {
+              data[key] = value;
+            }
+          } else {
+            data[key] = value;
+          }
         }
       });
 
@@ -225,13 +228,13 @@ export async function fetchLastUpdateMetadata(): Promise<MetadataLastUpdate | nu
 }
 
 /**
- * Deletes all voyages and resets to initial defaults on Firestore
+ * Deletes all voyages on Firestore (leaving it completely clean)
  */
 export async function resetViagensInFirestore(uploader: string = "Administrador"): Promise<void> {
   try {
-    await saveViagensToFirestore(INITIAL_VIAGENS, 'substituir', {
+    await saveViagensToFirestore([], 'substituir', {
       uploaderName: uploader,
-      fileName: 'Base_Redefinida_Inicial.xlsx',
+      fileName: 'Banco de Dados Limpo',
       });
   } catch (error) {
     handleFirestoreError(error, OperationType.DELETE, VIAGENS_COLLECTION);
