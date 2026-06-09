@@ -1531,34 +1531,12 @@ export default function Home() {
   const motoristas = React.useMemo(() => computeMotoristaMetrics(activeViagens), [activeViagens]);
   const rotas = React.useMemo(() => computeRouteMetrics(activeViagens), [activeViagens]);
 
-  const rankingViagens = React.useMemo(() => {
-    let list = viagens;
-    
-    // Filter by local Ranking Filial select
-    if (rankingFilial !== 'ALL') {
-      list = list.filter(v => (v.filial || '').trim().toUpperCase() === rankingFilial.toUpperCase().trim());
-    }
-    
-    // Filter by active years and months
-    if (selectedAnos && selectedAnos.length > 0) {
-      list = list.filter(v => selectedAnos.includes(String(v.ano || 2026)));
-    }
-    if (selectedMeses && selectedMeses.length > 0) {
-      list = list.filter(v => {
-        const vMes = v.mes ? v.mes.trim() : 'Janeiro';
-        return selectedMeses.some(sel => sel.trim().toUpperCase() === vMes.toUpperCase());
-      });
-    }
-    
-    return list;
-  }, [viagens, rankingFilial, selectedAnos, selectedMeses]);
-
   const computedSupervisorRankings = React.useMemo(() => {
     const rankingActiveMonthsCount = selectedMeses && selectedMeses.length > 0 
       ? selectedMeses.length 
       : mesesDrop.length;
     // Compute plate rankings for the filtered subset of trips to get the statusMeta correctly evaluated
-    const plateMetrics = computePlacaMetrics(rankingViagens, viagens, rankingActiveMonthsCount);
+    const plateMetrics = computePlacaMetrics(activeViagens, viagens, rankingActiveMonthsCount);
     
     const supMap: Record<string, {
       supervisor: string;
@@ -1633,7 +1611,7 @@ export default function Home() {
       byViagens,
       byMeta
     };
-  }, [rankingViagens, viagens, selectedMeses, mesesDrop]);
+  }, [activeViagens, viagens, selectedMeses, mesesDrop]);
 
   const sortedAndFilteredAllSupervisors = React.useMemo(() => {
     let result = [...computedSupervisorRankings.all];
@@ -2725,7 +2703,7 @@ export default function Home() {
                       </p>
                     </div>
                     <p className="text-[9px] text-[#737686] mt-3 font-semibold uppercase tracking-wider">
-                      ≥ 4 viagens por veículo
+                      ≥ 4 viagens por veículo/mês
                     </p>
                   </div>
 
@@ -2740,7 +2718,7 @@ export default function Home() {
                       </p>
                     </div>
                     <p className="text-[9px] text-[#737686] mt-3 font-semibold uppercase tracking-wider">
-                      &lt; 4 viagens por veículo
+                      &lt; 4 viagens por veículo/mês
                     </p>
                   </div>
                 </div>
@@ -2828,7 +2806,7 @@ export default function Home() {
                           fill="transparent"
                           stroke="var(--color-error)"
                           strokeWidth="5"
-                          strokeDasharray={`${(metrics.foraMetaCount / (metrics.totalPlacas || 1)) * 100} ${100 - (metrics.foraMetaCount / (metrics.totalPlacas || 1)) * 100}`}
+                          strokeDasharray={`${(metrics.foraMetaCount / ((metrics.dentroMetaCount + metrics.foraMetaCount) || 1)) * 100} ${100 - (metrics.foraMetaCount / ((metrics.dentroMetaCount + metrics.foraMetaCount) || 1)) * 100}`}
                           strokeDashoffset="0"
                           className="transition-all duration-1000"
                         />
@@ -2840,15 +2818,15 @@ export default function Home() {
                           fill="transparent"
                           stroke="var(--color-secondary)"
                           strokeWidth="5"
-                          strokeDasharray={`${(metrics.dentroMetaCount / (metrics.totalPlacas || 1)) * 100} ${100 - (metrics.dentroMetaCount / (metrics.totalPlacas || 1)) * 100}`}
-                          strokeDashoffset={`${100 - (metrics.foraMetaCount / (metrics.totalPlacas || 1)) * 100}`}
+                          strokeDasharray={`${(metrics.dentroMetaCount / ((metrics.dentroMetaCount + metrics.foraMetaCount) || 1)) * 100} ${100 - (metrics.dentroMetaCount / ((metrics.dentroMetaCount + metrics.foraMetaCount) || 1)) * 100}`}
+                          strokeDashoffset={`${100 - (metrics.foraMetaCount / ((metrics.dentroMetaCount + metrics.foraMetaCount) || 1)) * 100}`}
                           className="transition-all duration-1000"
                         />
                       </svg>
                       {/* Labeled overlay */}
                       <div className="absolute text-center flex flex-col justify-center items-center">
-                        <p className="text-2xl sm:text-3xl font-black text-[#0b1c30] leading-none">{metrics.totalPlacas}</p>
-                        <p className="text-[9px] text-[#737686] font-bold uppercase tracking-wider mt-1">Placas</p>
+                        <p className="text-2xl sm:text-3xl font-black text-[#0b1c30] leading-none">{metrics.dentroMetaCount + metrics.foraMetaCount}</p>
+                        <p className="text-[9px] text-[#737686] font-bold uppercase tracking-wider mt-1 font-sans">Placas/Mês</p>
                       </div>
                     </div>
 
@@ -5252,24 +5230,6 @@ export default function Home() {
                   
                   {/* Local Controls */}
                   <div className="flex flex-wrap items-center gap-3">
-                    {/* Filial selector */}
-                    <div className="flex flex-col gap-1">
-                      <label className="text-[10px] font-bold text-[#434655] uppercase tracking-wider">Filial do Ranking</label>
-                      <select
-                        value={rankingFilial}
-                        onChange={(e) => {
-                          setRankingFilial(e.target.value);
-                          setExpandedSupervisor(null);
-                        }}
-                        className="text-xs font-black text-[#0b1c30] bg-[#f8f9fc] border border-[#c3c6d7]/40 px-3 py-2 rounded-xl focus:outline-none focus:ring-1 focus:ring-[#004ac6] transition-all min-w-[200px]"
-                      >
-                        <option value="ALL">Todas as Filiais (Geral)</option>
-                        {filiaisDrop.map((fil: string) => (
-                          <option key={fil} value={fil}>{fil.toUpperCase()}</option>
-                        ))}
-                      </select>
-                    </div>
-
                     {/* View type switcher */}
                     <div className="flex flex-col gap-1">
                       <label className="text-[10px] font-bold text-[#434655] uppercase tracking-wider">Modo de Exibição</label>
@@ -5307,9 +5267,9 @@ export default function Home() {
                     const totalS = computedSupervisorRankings.all.length;
                     const totalFat = computedSupervisorRankings.all.reduce((sum, s) => sum + s.faturamento, 0);
                     const totalV = computedSupervisorRankings.all.reduce((sum, s) => sum + s.viagensCount, 0);
-                    const totalP = computedSupervisorRankings.all.reduce((sum, s) => sum + s.totalPlates, 0);
-                    const totalPDentro = computedSupervisorRankings.all.reduce((sum, s) => sum + s.platesDentro, 0);
-                    const overallCompliance = totalP > 0 ? Math.round((totalPDentro / totalP) * 100) : 0;
+                    const totalP_evals = metrics.dentroMetaCount + metrics.foraMetaCount;
+                    const totalPDentro = metrics.dentroMetaCount;
+                    const overallCompliance = totalP_evals > 0 ? Math.round((totalPDentro / totalP_evals) * 100) : 0;
 
                     return (
                       <>
@@ -5342,7 +5302,7 @@ export default function Home() {
                           <div className="mt-2.5 flex items-baseline gap-2">
                             <span className="text-2xl font-black text-blue-600 block">{overallCompliance}%</span>
                             <span className="text-xs font-bold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded">
-                              {totalPDentro}/{totalP} dentro
+                              {totalPDentro}/{totalP_evals} dentro
                             </span>
                           </div>
                           <span className="text-[10px] font-bold text-slate-400 mt-1 block">veículos atingindo metas</span>
