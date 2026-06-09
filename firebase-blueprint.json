@@ -63,6 +63,23 @@
         "timestamp": { "type": "number", "description": "Carimbo de tempo unix de ordenação" }
       },
       "required": ["data", "hora", "usuario", "nomePlanilha", "quantidadeRegistros", "timestamp"]
+    },
+    "userProfileConfig": {
+      "title": "UserProfileConfig",
+      "description": "Configurações de perfil e preferências personalizadas do usuário",
+      "type": "object",
+      "properties": {
+        "nome": { "type": "string" },
+        "cargo": { "type": "string" },
+        "filialPreferida": { "type": "string" },
+        "supervisorPreferido": { "type": "string" },
+        "whatsapp": { "type": "string" },
+        "notificacoesEmail": { "type": "boolean" },
+        "alertasAudivel": { "type": "boolean" },
+        "limiteViagensPlaca": { "type": "number" },
+        "avatarColor": { "type": "string" }
+      },
+      "required": ["nome", "cargo"]
     }
   },
   "firestore": {
@@ -77,6 +94,10 @@
     "/import_logs/{logId}": {
       "schema": "importLog",
       "description": "Históricos detalhados de cada importação gravada"
+    },
+    "/profiles/{userId}": {
+      "schema": "userProfileConfig",
+      "description": "Coleção contendo as configurações de perfil de cada usuário autenticado"
     }
   }
 }

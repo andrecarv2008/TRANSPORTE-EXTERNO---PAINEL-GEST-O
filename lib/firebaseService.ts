@@ -232,8 +232,51 @@ export async function resetViagensInFirestore(uploader: string = "Administrador"
     await saveViagensToFirestore(INITIAL_VIAGENS, 'substituir', {
       uploaderName: uploader,
       fileName: 'Base_Redefinida_Inicial.xlsx',
-    });
+      });
   } catch (error) {
     handleFirestoreError(error, OperationType.DELETE, VIAGENS_COLLECTION);
+  }
+}
+
+export interface UserProfileConfig {
+  nome: string;
+  cargo: string;
+  filialPreferida: string;
+  supervisorPreferido: string;
+  whatsapp: string;
+  notificacoesEmail: boolean;
+  alertasAudivel: boolean;
+  limiteViagensPlaca: number;
+  avatarColor: string;
+}
+
+const PROFILES_COLLECTION = 'profiles';
+
+/**
+ * Fetches user profile from Firestore for a given authenticated user ID.
+ */
+export async function fetchUserProfileFromFirestore(userId: string): Promise<UserProfileConfig | null> {
+  try {
+    const docRef = doc(db, PROFILES_COLLECTION, userId);
+    const docSnap = await getDoc(docRef);
+    if (docSnap.exists()) {
+      return docSnap.data() as UserProfileConfig;
+    }
+    return null;
+  } catch (error) {
+    handleFirestoreError(error, OperationType.GET, `${PROFILES_COLLECTION}/${userId}`);
+    return null;
+  }
+}
+
+/**
+ * Saves or updates user profile in Firestore.
+ */
+export async function saveUserProfileToFirestore(userId: string, profile: UserProfileConfig): Promise<void> {
+  try {
+    const docRef = doc(db, PROFILES_COLLECTION, userId);
+    await setDoc(docRef, profile, { merge: true });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.WRITE, `${PROFILES_COLLECTION}/${userId}`);
   }
 }

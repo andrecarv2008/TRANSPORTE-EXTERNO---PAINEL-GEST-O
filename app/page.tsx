@@ -19,6 +19,7 @@ import {
   Calendar,
   AlertTriangle,
   CheckCircle2,
+  Save,
   Bookmark,
   ChevronRight,
   SlidersHorizontal,
@@ -56,7 +57,10 @@ import {
   resetViagensInFirestore,
   MetadataLastUpdate,
   ImportLog,
-  fetchImportLogsFromFirestore
+  fetchImportLogsFromFirestore,
+  UserProfileConfig,
+  fetchUserProfileFromFirestore,
+  saveUserProfileToFirestore
 } from '@/lib/firebaseService';
 import { auth } from '@/lib/firebase';
 import {
@@ -1014,7 +1018,18 @@ export default function Home() {
   const [viagens, setViagens] = React.useState<Viagem[]>(INITIAL_VIAGENS);
   const [isSidebarOpen, setIsSidebarOpen] = React.useState(false);
   const [hoveredBarLabel, setHoveredBarLabel] = React.useState<string | null>(null);
-  const [activeTab, setActiveTab] = React.useState<'dashboard' | 'vehiculos' | 'rotas' | 'relatorios' | 'comparativo'>('dashboard');
+  const [activeTab, setActiveTab] = React.useState<'dashboard' | 'vehiculos' | 'rotas' | 'relatorios' | 'comparativo' | 'perfil'>('dashboard');
+  const [personalProfile, setPersonalProfile] = React.useState<UserProfileConfig>({
+    nome: "Usuário Grupo Mateus",
+    cargo: "Analista de Transporte",
+    filialPreferida: "ALL",
+    supervisorPreferido: "ALL",
+    whatsapp: "(98) 99123-4567",
+    notificacoesEmail: true,
+    alertasAudivel: false,
+    limiteViagensPlaca: 100,
+    avatarColor: "bg-[#004ac6]",
+  });
   const [selectedComparisonKey, setSelectedComparisonKey] = React.useState<string | null>(null);
   const [comparisonBaseKey, setComparisonBaseKey] = React.useState<string | null>(null);
   const [isImportOpen, setIsImportOpen] = React.useState(false);
@@ -1025,7 +1040,7 @@ export default function Home() {
   const [isLogoSettingsOpen, setIsLogoSettingsOpen] = React.useState(false);
   
   // Real-time Cloud Auth and Profile Roles
-  const [userProfile, setUserProfile] = React.useState<'Administrador' | 'Visitante'>('Visitante');
+  const [userProfile, setUserProfile] = React.useState<'Administrador' | 'Leitor'>('Leitor');
   const [currentUser, setCurrentUser] = React.useState<FirebaseUser | null>(null);
   const [lastUpdate, setLastUpdate] = React.useState<MetadataLastUpdate | null>(null);
   const [importLogs, setImportLogs] = React.useState<ImportLog[]>([]);
@@ -1072,17 +1087,50 @@ export default function Home() {
     const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
       if (user) {
         setCurrentUser(user);
-        const lowerEmail = user.email?.toLowerCase();
-        if ((lowerEmail === 'andreandersoncarvalhorocha1@gmail.com' || lowerEmail === 'andreandersoncarvalho@gmail.com') && user.emailVerified) {
+        if (user.email === 'andreandersoncarvalhorocha1@gmail.com' && user.emailVerified) {
           setUserProfile('Administrador');
           triggerToast(`🔑 Administrador Autenticado por Google: ${user.email}`);
         } else {
-          setUserProfile('Visitante');
+          setUserProfile('Leitor');
           triggerToast(`👤 Conectado por Google (Apenas Leitura): ${user.email}`);
         }
+
+        // Fetch Google Profile data from Cloud Firestore
+        fetchUserProfileFromFirestore(user.uid)
+          .then((prof) => {
+            if (prof) {
+              setPersonalProfile(prof);
+            } else {
+              // Populate default profile settings if brand new
+              const nickname = user.displayName || user.email?.split('@')[0] || "Usuário";
+              const newProf: UserProfileConfig = {
+                nome: nickname,
+                cargo: user.email === 'andreandersoncarvalhorocha1@gmail.com' ? "Administrador de Transporte" : "Supervisor de Frota",
+                filialPreferida: "ALL",
+                supervisorPreferido: "ALL",
+                whatsapp: "(98) 99123-4567",
+                notificacoesEmail: true,
+                alertasAudivel: false,
+                limiteViagensPlaca: 100,
+                avatarColor: "bg-[#004ac6]"
+              };
+              setPersonalProfile(newProf);
+              saveUserProfileToFirestore(user.uid, newProf).catch(e => console.warn("Failed saving basic profile on init:", e));
+            }
+          })
+          .catch((e) => console.warn("Firestore profile loading failed:", e));
+
       } else {
         setCurrentUser(null);
-        setUserProfile('Visitante');
+        // Load offline profile config from localStorage as fallback
+        const localCached = localStorage.getItem('personal_profile');
+        if (localCached) {
+          try {
+            setPersonalProfile(JSON.parse(localCached));
+          } catch(e) {
+            console.warn(e);
+          }
+        }
       }
     });
 
@@ -1097,10 +1145,6 @@ export default function Home() {
       })
       .catch((err) => {
         console.warn("Could not fetch elements from cloud, falling back to local copies:", err);
-        const errString = String(err?.message || err || "");
-        if (errString.includes("resource-exhausted") || errString.includes("quota") || errString.includes("Exceeded")) {
-          triggerToast("⚠️ Quota diária do banco Firestore excedida. Exibindo dados locais.");
-        }
         getViagensFromDB().then((saved) => {
           if (saved && saved.length > 0) {
             setViagens(saved);
@@ -1174,6 +1218,12 @@ export default function Home() {
 
         const savedLogo = localStorage.getItem('app_logo_url');
         if (savedLogo) setLogoUrl(savedLogo);
+
+        // Retrieve user profile choice if saved
+        const savedProfile = localStorage.getItem('user_profile_role');
+        if (savedProfile) {
+          setUserProfile(savedProfile as any);
+        }
       } catch (e) {
         console.warn('Could not read state from storage', e);
       }
@@ -1337,11 +1387,21 @@ export default function Home() {
   const handleSignOut = async () => {
     try {
       await signOut(auth);
-      setUserProfile('Visitante');
-      localStorage.removeItem('user_profile_role');
-      triggerToast("👋 Logout efetuado. Retornado ao Perfil de Visitante.");
+      setUserProfile('Leitor');
+      localStorage.setItem('user_profile_role', 'Leitor');
+      triggerToast("👋 Logout efetuado. Retornado ao Perfil de Leitor.");
     } catch (error: any) {
       console.error(error);
+    }
+  };
+
+  const handleProfileToggle = (newRole: 'Administrador' | 'Leitor') => {
+    setUserProfile(newRole);
+    localStorage.setItem('user_profile_role', newRole);
+    if (newRole === 'Administrador' && !currentUser) {
+      triggerToast("⚠️ Modo Administrador Simulado ativo. Importação permitida localmente, mas rejeitada na Nuvem até fazer login com o Google Admin.");
+    } else {
+      triggerToast(`👤 Perfil alterado para ${newRole}.`);
     }
   };
 
@@ -2020,45 +2080,57 @@ export default function Home() {
               </span>
             </div>
 
-            {userProfile !== 'Administrador' && (
-              <div className="flex items-center gap-2 text-gray-500 bg-gray-100/50 p-2 rounded-lg border border-dashed border-gray-300/60">
-                <Lock className="w-3.5 h-3.5 text-gray-400 shrink-0" />
-                <span className="text-[10px] font-semibold text-gray-500">
-                  Somente Leitura
-                </span>
+            <div className="flex flex-col gap-1.5">
+              <span className="text-[8.5px] font-bold text-[#737686] uppercase">Trocar Perfil:</span>
+              <div className="grid grid-cols-2 gap-1.5">
+                <button
+                  onClick={() => handleProfileToggle('Leitor')}
+                  className={`px-1 py-1.5 text-[10px] font-bold rounded-lg border transition-all ${
+                    userProfile === 'Leitor'
+                      ? 'bg-[#0b1c30] text-white border-[#0b1c30]'
+                      : 'bg-white text-gray-600 border-[#c3c6d7]/40 hover:bg-gray-50'
+                  }`}
+                >
+                  Leitor
+                </button>
+                <button
+                  onClick={() => handleProfileToggle('Administrador')}
+                  className={`px-1 py-1.5 text-[10px] font-bold rounded-lg border transition-all ${
+                    userProfile === 'Administrador' && !currentUser
+                      ? 'bg-[#004ac6] text-white border-[#004ac6]'
+                      : userProfile === 'Administrador' && currentUser
+                        ? 'bg-[#00714d] text-white border-[#00714d]'
+                        : 'bg-white text-gray-600 border-[#c3c6d7]/40 hover:bg-gray-50'
+                  }`}
+                >
+                  Admin
+                </button>
               </div>
-            )}
+            </div>
 
-            {/* Google Authentication Section */}
-            <div className="pt-1">
+            {/* Google Authentication Section for Admins */}
+            <div className="pt-1.5">
               {currentUser ? (
                 <div className="space-y-2">
                   <div className="flex items-center gap-1.5 max-w-full">
-                    {currentUser.photoURL ? (
-                      <img
-                        src={currentUser.photoURL}
-                        alt="User"
-                        className="w-5 h-5 rounded-full object-cover shrink-0"
-                        referrerPolicy="no-referrer"
-                      />
-                    ) : (
-                      <div className="w-5 h-5 rounded-full bg-[#004ac6] text-white flex items-center justify-center text-[9px] font-black shrink-0">
-                        {currentUser.email?.charAt(0).toUpperCase()}
-                      </div>
-                    )}
+                    <img
+                      src={currentUser.photoURL || undefined}
+                      alt="User"
+                      className="w-5 h-5 rounded-full object-cover shrink-0"
+                      referrerPolicy="no-referrer"
+                    />
                     <div className="flex flex-col min-w-0">
-                      <span className="text-[10px] font-black text-[#0b1c30] truncate" title={currentUser.displayName || currentUser.email || undefined}>
+                      <span className="text-[9px] font-black text-[#0b1c30] truncate" title={currentUser.displayName || currentUser.email || undefined}>
                         {currentUser.displayName || currentUser.email}
                       </span>
-                      <span className="text-[8px] font-black text-[#00714d] leading-none flex items-center gap-0.5">
-                        <span className="inline-block w-1 h-1 bg-[#00714d] rounded-full"></span>
-                        {userProfile === 'Administrador' ? 'Admin Autenticado' : 'Leitor Conectado'}
+                      <span className="text-[7.5px] font-semibold text-gray-500 leading-none">
+                        Google Conectado
                       </span>
                     </div>
                   </div>
                   <button
                     onClick={handleSignOut}
-                    className="w-full text-[9px] font-black uppercase text-red-600 hover:text-red-700 hover:bg-red-50 py-1 rounded border border-red-200/40 text-center transition-colors cursor-pointer"
+                    className="w-full text-[9px] font-black uppercase text-red-600 hover:text-red-700 hover:bg-red-50 py-1 rounded border border-red-200/40 text-center transition-colors"
                   >
                     Logout Google
                   </button>
@@ -2070,7 +2142,7 @@ export default function Home() {
                   </p>
                   <button
                     onClick={handleGoogleSignIn}
-                    className="w-full text-[9px] font-bold text-gray-700 bg-white hover:bg-gray-50 border border-gray-300 py-1 px-2 rounded flex items-center justify-center gap-1 transition-colors cursor-pointer"
+                    className="w-full text-[9px] font-bold text-gray-700 bg-white hover:bg-gray-50 border border-gray-300 py-1 px-2 rounded flex items-center justify-center gap-1 transition-colors"
                   >
                     <span className="text-red-500">G</span> Login Admin Google
                   </button>
@@ -2088,15 +2160,17 @@ export default function Home() {
           </button>
 
           <div className="border-t border-[#c3c6d7]/40 pt-4 flex flex-col gap-1">
-            {userProfile === 'Administrador' && (
-              <button
-                onClick={() => { triggerToast("⚙️ Redirecionando para as Configurações do Sistema..."); setIsSidebarOpen(false); }}
-                className="w-full flex items-center gap-3 px-4 py-2 text-[#434655] hover:bg-gray-100 text-xs font-bold rounded-lg transition-colors"
-              >
-                <Settings className="w-4 h-4" />
-                Configurações
-              </button>
-            )}
+            <button
+              onClick={() => { updateActiveTab('perfil'); setIsSidebarOpen(false); }}
+              className={`w-full flex items-center gap-3 px-4 py-2 text-xs font-bold rounded-lg transition-colors ${
+                activeTab === 'perfil'
+                  ? 'bg-[#004ac6]/10 text-[#004ac6]'
+                  : 'text-[#434655] hover:bg-gray-100'
+              }`}
+            >
+              <Settings className="w-4 h-4" />
+              Configuração Perfil
+            </button>
             <button
               onClick={async () => {
                 await clearViagensFromDB();
@@ -2262,28 +2336,42 @@ export default function Home() {
             </div>
 
             {/* Clear persistent data */}
-            {userProfile === 'Administrador' && (
-              <button
-                onClick={handleClearAllData}
-                className="border border-[#c3c6d7]/50 p-2 sm:px-3 sm:py-2 rounded-lg text-xs font-bold active:scale-95 flex items-center gap-1.5 transition-all cursor-pointer text-[#434655] hover:bg-red-50 hover:text-red-500"
-                title="Limpar todos os dados importados"
-              >
-                <Trash2 className="w-4 h-4" />
-                <span className="hidden xl:inline">Limpar Dados</span>
-              </button>
-            )}
+            <button
+              onClick={() => {
+                if (userProfile !== 'Administrador') {
+                  triggerToast("❌ Acesso Reservado: Apenas o Administrador pode limpar ou redefinir dados.");
+                } else {
+                  handleClearAllData();
+                }
+              }}
+              className={`border border-[#c3c6d7]/50 p-2 sm:px-3 sm:py-2 rounded-lg text-xs font-bold active:scale-95 flex items-center gap-1.5 transition-all cursor-pointer ${
+                userProfile !== 'Administrador' ? 'opacity-50 text-gray-400 border-dashed hover:bg-transparent' : 'text-[#434655] hover:bg-red-50 hover:text-red-500'
+              }`}
+              title="Limpar todos os dados importados"
+            >
+              {userProfile !== 'Administrador' ? <Lock className="w-4 h-4 text-gray-400" /> : <Trash2 className="w-4 h-4" />}
+              <span className="hidden xl:inline">Limpar Dados</span>
+            </button>
 
             {/* Import Planilha Trigger */}
-            {userProfile === 'Administrador' && (
-              <button
-                onClick={() => setIsImportOpen(true)}
-                className="p-2 sm:px-4 sm:py-2 rounded-lg text-xs font-extrabold shadow-sm active:scale-95 flex items-center gap-2 transition-all cursor-pointer bg-[#004ac6] text-white hover:bg-opacity-95"
-                title="Importar Planilha"
-              >
-                <Upload className="w-4 h-4" />
-                <span className="hidden md:inline">Importar Planilha</span>
-              </button>
-            )}
+            <button
+              onClick={() => {
+                if (userProfile !== 'Administrador') {
+                  triggerToast("❌ Acesso Reservado: Ative o perfil Administrador no menu para importar novas planilhas.");
+                } else {
+                  setIsImportOpen(true);
+                }
+              }}
+              className={`p-2 sm:px-4 sm:py-2 rounded-lg text-xs font-extrabold shadow-sm active:scale-95 flex items-center gap-2 transition-all cursor-pointer ${
+                userProfile !== 'Administrador'
+                  ? 'bg-gray-200 text-gray-500 border border-gray-300 pointer-events-auto opacity-75'
+                  : 'bg-[#004ac6] text-white hover:bg-opacity-95'
+              }`}
+              title="Importar Planilha"
+            >
+              {userProfile !== 'Administrador' ? <Lock className="w-4 h-4 text-gray-500" /> : <Upload className="w-4 h-4" />}
+              <span className="hidden md:inline">Importar Planilha</span>
+            </button>
 
             {/* Notifications simulated */}
             <button
@@ -2950,18 +3038,18 @@ export default function Home() {
                   {/* ANALYTICS SECTION GRID: BAR DISTRIBUTION (7/12) & META METRICS PIE (5/12) */}
                   <div className="grid grid-cols-12 gap-6">
                     {/* TRIPS DISTRIBUTION BAR CHART */}
-                    <div className="col-span-12 lg:col-span-7 bg-white border border-[#c3c6d7]/30 rounded-2xl p-6 shadow-xs flex flex-col justify-between min-h-[504px]">
+                    <div className="col-span-12 lg:col-span-7 bg-white border border-[#c3c6d7]/30 rounded-2xl p-6 shadow-xs flex flex-col justify-between min-h-[380px]">
                       <div>
                         <h4 className="text-sm font-black text-[#0b1c30] uppercase tracking-wider mb-1">
                           DISTRIBUIÇÃO DE PLACAS POR QUANTIDADE DE VIAGENS
                         </h4>
-                        <p className="text-[11px] text-[#737686] mb-8 font-bold">
+                        <p className="text-[11px] text-[#737686] mb-4 font-bold">
                           Contagem consolidada de veículos em cada categoria de viagem
                         </p>
                       </div>
 
                       {/* Bar Plot */}
-                      <div id="vehiculos-distribuicao-grafico" className="relative flex-1 h-[380px] flex items-end">
+                      <div id="vehiculos-distribuicao-grafico" className="relative flex-1 h-[260px] flex items-end">
                         {/* Y-Axis scale label */}
                         <div className="absolute top-0 -left-2 h-full flex flex-col justify-between items-end text-slate-400 font-mono text-[10px] leading-none pointer-events-none pr-3 py-1">
                           {ticks.map((t, idx) => (
@@ -2987,7 +3075,7 @@ export default function Home() {
                                 onMouseEnter={() => setHoveredBarLabel(d.label)}
                                 onMouseLeave={() => setHoveredBarLabel(null)}
                                 onClick={() => setSelectedTripCategory(d.label)}
-                                className={`relative group flex flex-col items-center w-14 md:w-20 h-full justify-end cursor-pointer pt-6 transition-transform duration-200 ${
+                                className={`relative group flex flex-col items-center w-12 md:w-16 h-full justify-end cursor-pointer pt-4 transition-transform duration-200 ${
                                   isCurrentlyHovered ? 'scale-105' : 'scale-100'
                                 }`}
                               >
@@ -3018,7 +3106,7 @@ export default function Home() {
                                 </div>
 
                                 {/* Active labels above the column bars */}
-                                <span className={`text-sm font-black mb-2.5 z-10 transition-transform duration-200 ${
+                                <span className={`text-xs font-black mb-1.5 z-10 transition-transform duration-200 ${
                                   isCurrentlyHovered ? 'text-[#004ac6] scale-115' : 'text-[#0b1c30] group-hover:scale-110'
                                 }`}>
                                   {d.count}
@@ -3944,17 +4032,15 @@ export default function Home() {
                     <h3 className="text-xl font-bold mt-1 text-[#0b1c30]">Filtros e Detalhamento de Viagens</h3>
                   </div>
                   <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
-                    {userProfile === 'Administrador' && (
-                      <button
-                        onClick={() => setIsLogoSettingsOpen(true)}
-                        className="bg-white text-[#004ac6] border border-[#004ac6] px-5 py-2.5 rounded-xl text-xs font-extrabold flex items-center gap-2 hover:bg-slate-50 shadow-sm w-full justify-center whitespace-nowrap cursor-pointer hover:border-blue-600 transition-all"
-                      >
-                        <Upload className="w-4 h-4 text-[#004ac6]" /> Inserir Logotipo
-                      </button>
-                    )}
+                    <button
+                      onClick={() => setIsLogoSettingsOpen(true)}
+                      className="bg-white text-[#004ac6] border border-[#004ac6] px-5 py-2.5 rounded-xl text-xs font-extrabold flex items-center gap-2 hover:bg-slate-50 shadow-sm w-full justify-center whitespace-nowrap"
+                    >
+                      <Upload className="w-4 h-4 text-[#004ac6]" /> Inserir Logotipo
+                    </button>
                     <button
                       onClick={() => handleDownloadPDF('Despacho_Frota_Completo')}
-                      className="bg-[#004ac6] text-white px-5 py-2.5 rounded-xl text-xs font-extrabold flex items-center gap-2 hover:bg-opacity-95 shadow-md w-full justify-center cursor-pointer transition-colors"
+                      className="bg-[#004ac6] text-white px-5 py-2.5 rounded-xl text-xs font-extrabold flex items-center gap-2 hover:bg-opacity-95 shadow-md w-full justify-center"
                     >
                       <Download className="w-4 h-4" /> Exportar Planilha Excel/CSV
                     </button>
@@ -4949,6 +5035,258 @@ export default function Home() {
                     </div>
                   );
                 })()}
+              </motion.div>
+            )}
+
+            {activeTab === 'perfil' && (
+              <motion.div
+                initial={{ opacity: 0, y: 15 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -15 }}
+                transition={{ duration: 0.35, ease: "easeOut" }}
+                className="space-y-6 max-w-4xl mx-auto font-sans"
+              >
+                {/* Header Section */}
+                <header className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 animate-fade-in">
+                  <div>
+                    <h2 className="text-[10px] font-extrabold text-[#737686] uppercase tracking-widest leading-none">
+                      Painel de Ajustes Pessoais
+                    </h2>
+                    <h3 className="text-xl font-black mt-1 text-[#0b1c30]">Minhas Configurações de Perfil</h3>
+                  </div>
+                  
+                  {currentUser && (
+                    <div className="flex items-center gap-2 bg-[#004ac6]/10 px-3 py-1.5 rounded-xl border border-[#004ac6]/15">
+                      <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                      <span className="text-[10px] font-black text-[#004ac6] uppercase tracking-wide">Perfil Sincronizado do Google Cloud</span>
+                    </div>
+                  )}
+                </header>
+
+                <div className="grid grid-cols-1 md:grid-cols-12 gap-6">
+                  {/* Left Column - Card Avatar Display */}
+                  <div className="col-span-12 md:col-span-4 bg-white border border-[#c3c6d7]/30 rounded-2xl p-6 shadow-xs flex flex-col items-center justify-between text-center min-h-[380px]">
+                    <div className="w-full flex flex-col items-center">
+                      {/* Avatar preview */}
+                      <div className={`w-24 h-24 rounded-full ${personalProfile.avatarColor || 'bg-[#004ac6]'} text-white font-extrabold text-3xl flex items-center justify-center shadow-lg relative group transition-transform duration-300 hover:scale-105 mb-4`}>
+                        {personalProfile.nome ? personalProfile.nome.split(' ').map(n => n[0]).slice(0, 2).join('').toUpperCase() : 'GM'}
+                        <div className="absolute inset-0 bg-black/45 rounded-full opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
+                          <Sparkles className="w-5 h-5 text-yellow-300 animate-bounce" />
+                        </div>
+                      </div>
+
+                      <h4 className="text-sm font-black text-[#0b1c30] tracking-tight">{personalProfile.nome || 'Sem Nome'}</h4>
+                      <p className="text-[11px] text-[#737686] font-bold uppercase mt-1 tracking-wider">{personalProfile.cargo || 'Sem Cargo'}</p>
+                      
+                      <div className="w-full mt-6 space-y-2 text-left bg-slate-50 p-3 rounded-xl border border-slate-100">
+                        <div className="flex items-center gap-2 text-[10px] font-semibold text-[#434655]">
+                          <span className="text-[#a0a5c0] font-bold">Email:</span>
+                          <span className="truncate max-w-full text-[#0b1c30] font-bold" title={currentUser?.email || 'Nenhum'}>
+                            {currentUser?.email || 'Apenas Cache Local'}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2 text-[10px] font-semibold text-[#434655]">
+                          <span className="text-[#a0a5c0] font-bold">Acesso:</span>
+                          <span className="text-[#004ac6] font-black uppercase">{userProfile}</span>
+                        </div>
+                        <div className="flex items-center gap-2 text-[10px] font-semibold text-[#434655]">
+                          <span className="text-[#a0a5c0] font-bold">Estado:</span>
+                          <span>{currentUser ? 'Nuvem Conectada' : 'Modo Offline'}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Gradient Selector */}
+                    <div className="w-full pt-6 border-t border-slate-100 text-left">
+                      <label className="text-[9px] font-extrabold uppercase text-[#737686] tracking-wider block mb-2">Tema de Gradiente do Avatar</label>
+                      <div className="grid grid-cols-6 gap-1.5 justify-items-center">
+                        {[
+                          { key: 'bg-[#004ac6]', class: 'bg-[#004ac6]', label: 'Azul Mateus' },
+                          { key: 'bg-emerald-600', class: 'bg-emerald-600', label: 'Verde Floresta' },
+                          { key: 'bg-rose-600', class: 'bg-rose-600', label: 'Vermelho Rubi' },
+                          { key: 'bg-amber-600', class: 'bg-amber-600', label: 'Laranja Solar' },
+                          { key: 'bg-[#5b21b6]', class: 'bg-[#5b21b6]', label: 'Roxo Imperial' },
+                          { key: 'bg-slate-700', class: 'bg-slate-700', label: 'Cinza Grafite' },
+                        ].map((item) => (
+                          <button
+                            key={item.key}
+                            type="button"
+                            onClick={() => {
+                              setPersonalProfile(prev => ({ ...prev, avatarColor: item.class }));
+                              triggerToast(`🎨 Gradiente alterado: ${item.label}`);
+                            }}
+                            className={`w-6 h-6 rounded-full ${item.class} border-2 transition-all hover:scale-110 cursor-pointer ${
+                              (personalProfile.avatarColor || 'bg-[#004ac6]') === item.class ? 'border-amber-400 scale-110 ring-2 ring-amber-400/20' : 'border-transparent'
+                            }`}
+                            title={item.label}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Right Column - Form Preferences */}
+                  <form 
+                    onSubmit={async (e) => {
+                      e.preventDefault();
+                      try {
+                        // Persist offline first
+                        localStorage.setItem('personal_profile', JSON.stringify(personalProfile));
+                        
+                        // Persist in Firestore if online
+                        if (currentUser) {
+                          await saveUserProfileToFirestore(currentUser.uid, personalProfile);
+                          triggerToast("💾 Configurações de perfil enviadas e salvas na nuvem com segurança!");
+                        } else {
+                          triggerToast("💾 Ajustes salvos no cache do navegador local com sucesso!");
+                        }
+                      } catch (err) {
+                        console.error(err);
+                        triggerToast("❌ Erro ao salvar as configurações.");
+                      }
+                    }}
+                    className="col-span-12 md:col-span-8 bg-white border border-[#c3c6d7]/30 rounded-2xl p-6 shadow-xs space-y-6"
+                  >
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      {/* Name input */}
+                      <div className="space-y-1.5">
+                        <label className="text-[10px] font-extrabold uppercase text-[#737686] tracking-wider block">Nome Completo</label>
+                        <input
+                          type="text"
+                          required
+                          value={personalProfile.nome}
+                          onChange={(e) => setPersonalProfile(prev => ({ ...prev, nome: e.target.value }))}
+                          className="w-full bg-[#f8f9ff] text-xs font-bold text-[#0b1c30] px-4 py-3 rounded-xl border border-[#c3c6d7]/35 focus:outline-none focus:ring-1 focus:ring-[#004ac6]"
+                        />
+                      </div>
+
+                      {/* Cargo input */}
+                      <div className="space-y-1.5">
+                        <label className="text-[10px] font-extrabold uppercase text-[#737686] tracking-wider block">Cargo / Função</label>
+                        <input
+                          type="text"
+                          required
+                          value={personalProfile.cargo}
+                          onChange={(e) => setPersonalProfile(prev => ({ ...prev, cargo: e.target.value }))}
+                          className="w-full bg-[#f8f9ff] text-xs font-bold text-[#0b1c30] px-4 py-3 rounded-xl border border-[#c3c6d7]/35 focus:outline-none focus:ring-1 focus:ring-[#004ac6]"
+                        />
+                      </div>
+
+                      {/* Whatsapp contact */}
+                      <div className="space-y-1.5">
+                        <label className="text-[10px] font-extrabold uppercase text-[#737686] tracking-wider block">WhatsApp de Contato</label>
+                        <input
+                          type="text"
+                          value={personalProfile.whatsapp}
+                          onChange={(e) => setPersonalProfile(prev => ({ ...prev, whatsapp: e.target.value }))}
+                          className="w-full bg-[#f8f9ff] text-xs font-bold text-[#0b1c30] px-4 py-3 rounded-xl border border-[#c3c6d7]/35 focus:outline-none focus:ring-1 focus:ring-[#004ac6]"
+                        />
+                      </div>
+
+                      {/* Trip Limit Meta threshold */}
+                      <div className="space-y-1.5">
+                        <label className="text-[10px] font-extrabold uppercase text-[#737686] tracking-wider block">Limite de Carga Placa (Meta)</label>
+                        <input
+                          type="number"
+                          value={personalProfile.limiteViagensPlaca}
+                          onChange={(e) => setPersonalProfile(prev => ({ ...prev, limiteViagensPlaca: Number(e.target.value) }))}
+                          className="w-full bg-[#f8f9ff] text-xs font-bold text-[#0b1c30] px-4 py-3 rounded-xl border border-[#c3c6d7]/35 focus:outline-none focus:ring-1 focus:ring-[#004ac6]"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="border-t border-dashed border-slate-100 pt-4 grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      {/* Favorite branch (Filial preferida) */}
+                      <div className="space-y-1.5">
+                        <label className="text-[10px] font-extrabold uppercase text-[#737686] tracking-wider block">Filial de Foco Preferida</label>
+                        <select
+                          value={personalProfile.filialPreferida || 'ALL'}
+                          onChange={(e) => setPersonalProfile(prev => ({ ...prev, filialPreferida: e.target.value }))}
+                          className="w-full bg-[#f8f9ff] text-xs font-bold text-[#0b1c30] px-4 py-3 rounded-xl border border-[#c3c6d7]/35 focus:outline-none focus:ring-1 focus:ring-[#004ac6] cursor-pointer"
+                        >
+                          <option value="ALL">Nenhuma (Mostrar Todas)</option>
+                          {filiaisDrop.map((fKey) => (
+                            <option key={fKey} value={fKey}>
+                              {fKey}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      {/* Favorite supervisor (Supervisor preferido) */}
+                      <div className="space-y-1.5">
+                        <label className="text-[10px] font-extrabold uppercase text-[#737686] tracking-wider block">Supervisor Integrado Padrão</label>
+                        <select
+                          value={personalProfile.supervisorPreferido || 'ALL'}
+                          onChange={(e) => setPersonalProfile(prev => ({ ...prev, supervisorPreferido: e.target.value }))}
+                          className="w-full bg-[#f8f9ff] text-xs font-bold text-[#0b1c30] px-4 py-3 rounded-xl border border-[#c3c6d7]/35 focus:outline-none focus:ring-1 focus:ring-[#004ac6] cursor-pointer"
+                        >
+                          <option value="ALL">Nenhum (Mostrar Todos)</option>
+                          {supervisoresDrop.map((supKey) => (
+                            <option key={supKey} value={supKey}>
+                              {supKey}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+
+                    {/* Checkboxes Settings Section */}
+                    <div className="border-t border-dashed border-slate-100 pt-4 space-y-3">
+                      <h4 className="text-[10px] font-black uppercase text-[#737686] tracking-wider block">Preferências de Notificação & Som</h4>
+                      
+                      <div className="flex items-start gap-4">
+                        <div className="flex items-center h-5">
+                          <input
+                            type="checkbox"
+                            id="notificacoesEmail"
+                            checked={personalProfile.notificacoesEmail}
+                            onChange={(e) => setPersonalProfile(prev => ({ ...prev, notificacoesEmail: e.target.checked }))}
+                            className="w-4 h-4 rounded border-[#c3c6d7] text-[#004ac6] focus:ring-[#004ac6] cursor-pointer"
+                          />
+                        </div>
+                        <div className="text-xs">
+                          <label htmlFor="notificacoesEmail" className="font-extrabold text-[#0b1c30] cursor-pointer select-none">Alertas por E-mail</label>
+                          <p className="text-[10px] text-gray-500 font-semibold leading-tight">Enviar relatórios de fechamento de faturamento mensal para o e-mail cadastrado.</p>
+                        </div>
+                      </div>
+
+                      <div className="flex items-start gap-4">
+                        <div className="flex items-center h-5">
+                          <input
+                            type="checkbox"
+                            id="alertasAudivel"
+                            checked={personalProfile.alertasAudivel}
+                            onChange={(e) => setPersonalProfile(prev => ({ ...prev, alertasAudivel: e.target.checked }))}
+                            className="w-4 h-4 rounded border-[#c3c6d7] text-[#004ac6] focus:ring-[#004ac6] cursor-pointer"
+                          />
+                        </div>
+                        <div className="text-xs">
+                          <label htmlFor="alertasAudivel" className="font-extrabold text-[#0b1c30] cursor-pointer select-none">Som de Alerta no Painel</label>
+                          <p className="text-[10px] text-gray-500 font-semibold leading-tight">Emitir avisos sonoros ao detectar veículos que atingirem valores fora da meta estipulada.</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Save section buttons */}
+                    <div className="border-t border-gray-100 pt-5 flex justify-end gap-3 font-sans">
+                      <button
+                        type="button"
+                        onClick={() => { updateActiveTab('dashboard'); triggerToast("⚙️ Saída do Perfil concluída."); }}
+                        className="px-5 py-3 rounded-xl text-xs font-black bg-slate-100 hover:bg-slate-200 text-[#434655] cursor-pointer transition-colors uppercase tracking-wider"
+                      >
+                        Cancelar
+                      </button>
+                      <button
+                        type="submit"
+                        className="px-6 py-3 rounded-xl text-xs font-black bg-[#004ac6] hover:bg-opacity-95 text-white flex items-center gap-2 shadow-md cursor-pointer transition-colors uppercase tracking-wider"
+                      >
+                        <Save className="w-4 h-4" />
+                        Salvar Informações
+                      </button>
+                    </div>
+                  </form>
+                </div>
               </motion.div>
             )}
           </AnimatePresence>

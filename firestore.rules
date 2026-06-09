@@ -7,38 +7,43 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
-    // Helpers
+    // Hardened Global Helpers (Phase 3 primitives)
     function isSignedIn() {
       return request.auth != null;
     }
 
-    function isVerifiedEmail() {
-      return isSignedIn() && request.auth.token.email_verified == true;
-    }
-
-    function isAdmin() {
-      return isVerifiedEmail() && (
-        request.auth.token.email == "andreandersoncarvalho@gmail.com" || 
-        request.auth.token.email == "andreandersoncarvalhorocha1@gmail.com"
-      );
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
     }
 
     // For voyages (viagens)
     match /viagens/{viagemId} {
+      // Anyone (visitors) can read the imported voyages
       allow read: if true;
-      allow write: if isAdmin();
+      // Only the admin can write, edit, or delete voyages to avoid database manipulation
+      allow write: if isSignedIn() && request.auth.token.email == "andreandersoncarvalhorocha1@gmail.com" && request.auth.token.email_verified == true;
     }
 
     // For metadata
     match /metadata/{metadataId} {
+      // Anyone can read metadata to see when it was last updated
       allow read: if true;
-      allow write: if isAdmin();
+      // Only the admin can update metadata
+      allow write: if isSignedIn() && request.auth.token.email == "andreandersoncarvalhorocha1@gmail.com" && request.auth.token.email_verified == true;
     }
 
     // For import logs history (logs)
     match /import_logs/{logId} {
+      // Anyone can read import logs to see history
       allow read: if true;
-      allow write: if isAdmin();
+      // Only the admin can write history logs
+      allow write: if isSignedIn() && request.auth.token.email == "andreandersoncarvalhorocha1@gmail.com" && request.auth.token.email_verified == true;
+    }
+
+    // For user profiles
+    match /profiles/{userId} {
+      // Authenticated users can read/write their own profile after matching ID
+      allow read, write: if isSignedIn() && request.auth.uid == userId;
     }
   }
 }
