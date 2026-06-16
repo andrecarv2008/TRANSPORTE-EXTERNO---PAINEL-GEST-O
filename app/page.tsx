@@ -1531,6 +1531,110 @@ export default function Home() {
   const motoristas = React.useMemo(() => computeMotoristaMetrics(activeViagens), [activeViagens]);
   const rotas = React.useMemo(() => computeRouteMetrics(activeViagens), [activeViagens]);
 
+  // Compute physical plate rankings (aggregated across all matching trips for the selected filters)
+  const tableRankings = React.useMemo(() => {
+    const groups: Record<string, {
+      placa: string;
+      faturamento: number;
+      kmTotal: number;
+      despesaOficinaTotal: number;
+      supervisores: Record<string, number>;
+      motoristas: Record<string, number>;
+      viagensCount: number;
+      ultimaRota: string;
+    }> = {};
+
+    activeViagens.forEach(v => {
+      const p = v.placa.trim().toUpperCase();
+      if (!p) return;
+
+      if (!groups[p]) {
+        groups[p] = {
+          placa: p,
+          faturamento: 0,
+          kmTotal: 0,
+          despesaOficinaTotal: 0,
+          supervisores: {},
+          motoristas: {},
+          viagensCount: 0,
+          ultimaRota: ''
+        };
+      }
+
+      const g = groups[p];
+      g.faturamento += v.valorCarga || 0;
+      g.kmTotal += v.kmRodado || 0;
+      g.despesaOficinaTotal += v.despesaOficina || 0;
+      g.viagensCount += 1;
+
+      const sup = v.supervisao || 'Sem Supervisor';
+      g.supervisores[sup] = (g.supervisores[sup] || 0) + 1;
+
+      const mot = v.motorista || 'Sem Motorista';
+      g.motoristas[mot] = (g.motoristas[mot] || 0) + 1;
+
+      if (v.rota) {
+        g.ultimaRota = v.rota;
+      }
+    });
+
+    const list = Object.values(groups).map(g => {
+      const targetMeta = activeMonthsCount * 4;
+      const percentMeta = targetMeta > 0 ? Math.min(1000, Math.round((g.viagensCount / targetMeta) * 100)) : 0;
+
+      // Find principal supervisor
+      let supervisor = 'Sem Supervisor';
+      const sups = g.supervisores;
+      const realSups = Object.keys(sups).filter(sup => {
+        const s = sup.toUpperCase().trim();
+        return s !== 'CAMINHAO PARADO' && s !== 'SEM SUPERVISOR' && s !== '';
+      });
+      if (realSups.length > 0) {
+        let maxSupCount = -1;
+        realSups.forEach(sup => {
+          if (sups[sup] > maxSupCount) {
+            maxSupCount = sups[sup];
+            supervisor = sup;
+          }
+        });
+      } else {
+        let maxSupCount = -1;
+        Object.keys(sups).forEach(sup => {
+          if (sups[sup] > maxSupCount) {
+            maxSupCount = sups[sup];
+            supervisor = sup;
+          }
+        });
+      }
+
+      // Find principal motorista
+      let motorista = 'Sem Motorista';
+      let maxMotCount = -1;
+      Object.keys(g.motoristas).forEach(mot => {
+        if (g.motoristas[mot] > maxMotCount) {
+          maxMotCount = g.motoristas[mot];
+          motorista = mot;
+        }
+      });
+
+      return {
+        placa: g.placa,
+        viagensCount: g.viagensCount,
+        faturamentoTotal: g.faturamento,
+        kmRodadoTotal: g.kmTotal,
+        despesaOficinaTotal: g.despesaOficinaTotal,
+        percentMeta,
+        statusMeta: g.viagensCount >= targetMeta ? 'Dentro da Meta' : 'Fora da Meta',
+        supervisor,
+        motorista,
+        ultimaRota: g.ultimaRota || 'Sem rota programada',
+        targetMeta
+      };
+    });
+
+    return list.sort((a, b) => b.viagensCount - a.viagensCount || b.faturamentoTotal - a.faturamentoTotal);
+  }, [activeViagens, activeMonthsCount]);
+
   const computedSupervisorRankings = React.useMemo(() => {
     const rankingActiveMonthsCount = selectedMeses && selectedMeses.length > 0 
       ? selectedMeses.length 
@@ -3052,17 +3156,16 @@ export default function Home() {
               const maxTick = Math.ceil(maxCount / 10) * 10 || 10;
               const ticks = [maxTick, Math.round(maxTick * 0.8), Math.round(maxTick * 0.6), Math.round(maxTick * 0.4), Math.round(maxTick * 0.2), 0];
 
-              // Paginated Rankings table
-              const filteredRankings = rankings.filter(r => {
+              const filteredTableRankings = tableRankings.filter(r => {
                 if (!vehiculosSearchQuery.trim()) return true;
                 return r.placa.toLowerCase().includes(vehiculosSearchQuery.toLowerCase());
               });
 
               const rankingsPageSize = 10;
-              const maxRankingsPage = Math.max(1, Math.ceil(filteredRankings.length / rankingsPageSize));
+              const maxRankingsPage = Math.max(1, Math.ceil(filteredTableRankings.length / rankingsPageSize));
               // Clamp page index if it goes out of bounds due to filters
               const currentPageClamped = Math.min(vehiculosPage, maxRankingsPage);
-              const paginatedRankings = filteredRankings.slice((currentPageClamped - 1) * rankingsPageSize, currentPageClamped * rankingsPageSize);
+              const paginatedRankings = filteredTableRankings.slice((currentPageClamped - 1) * rankingsPageSize, currentPageClamped * rankingsPageSize);
 
               return (
                 <motion.div
@@ -3085,14 +3188,14 @@ export default function Home() {
 
                   {/* SEVEN PILL KPI GRID */}
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-7 gap-4">
-                    {/* KPI 1: TOTAL DE PLACAS */}
+                    {/* KPI 1: TOTAL DE VIAGENS */}
                     <div className="bg-white border border-[#c3c6d7]/30 rounded-2xl p-4.5 xl:p-5 flex items-center gap-3.5 shadow-xs transition-all duration-300 ease-in-out hover:scale-[1.03] hover:-translate-y-1 hover:shadow-lg hover:border-[#004ac6]/40 cursor-pointer">
                       <div className="w-12 h-12 rounded-full bg-blue-50 flex items-center justify-center shrink-0 border border-blue-100">
                         <Truck className="w-6 h-6 text-[#004ac6]" />
                       </div>
                       <div>
-                        <p className="text-[10px] text-[#737686] font-bold uppercase tracking-wider leading-none">TOTAL DE PLACAS</p>
-                        <p className="text-3xl font-black text-[#0b1c30] mt-2.5 leading-none">{totalPlacas}</p>
+                        <p className="text-[10px] text-[#737686] font-bold uppercase tracking-wider leading-none">TOTAL DE VIAGENS</p>
+                        <p className="text-3xl font-black text-[#0b1c30] mt-2.5 leading-none">{totalTrips.toLocaleString('pt-BR')}</p>
                       </div>
                     </div>
 
@@ -3376,7 +3479,7 @@ export default function Home() {
                             </svg>
                             {/* Centered clean badge overlay */}
                             <div className="absolute bg-[#0b1c30]/90 backdrop-blur-xs text-white text-[10px] font-black px-2 py-1 rounded-full shadow-lg border border-white/20 whitespace-nowrap">
-                              {totalPlacas} Placas
+                              {metrics.totalPlacas} Placas
                             </div>
                           </div>
 
@@ -3542,7 +3645,7 @@ export default function Home() {
                           🏆 Ranking Geral de Desempenho por Veículo
                         </h4>
                         <p className="text-[11px] text-[#737686] font-bold">
-                          Mostrando {filteredRankings.length === 0 ? 0 : (currentPageClamped - 1) * rankingsPageSize + 1} a {Math.min(currentPageClamped * rankingsPageSize, filteredRankings.length)} de {filteredRankings.length} registros
+                          Mostrando {filteredTableRankings.length === 0 ? 0 : (currentPageClamped - 1) * rankingsPageSize + 1} a {Math.min(currentPageClamped * rankingsPageSize, filteredTableRankings.length)} de {filteredTableRankings.length} registros
                         </p>
                       </div>
                       
@@ -3569,7 +3672,7 @@ export default function Home() {
                             </button>
                           )}
                         </div>
-
+ 
                         {/* Export PDF Button */}
                         <button
                           onClick={() => handleDownloadPDF('Relatorio_Frotas')}
@@ -3594,7 +3697,6 @@ export default function Home() {
                             <th className="px-4 py-3.5 text-center w-18">Meta</th>
                             <th className="px-4 py-3.5 text-center w-22">% Ating.</th>
                             <th className="px-4 py-3.5 text-right">Faturamento</th>
-                            <th className="px-4 py-3.5 text-center w-22">Conhec.</th>
                             <th className="px-4 py-3.5 text-right">KM Rodados</th>
                             <th className="px-4 py-3.5 text-center w-36">Status</th>
                           </tr>
@@ -3602,7 +3704,7 @@ export default function Home() {
                         <tbody className="divide-y divide-slate-100 text-xs font-bold text-slate-700 font-sans bg-white">
                           {paginatedRankings.length === 0 ? (
                             <tr>
-                              <td colSpan={12} className="text-center py-10 text-slate-400 font-semibold">
+                              <td colSpan={11} className="text-center py-10 text-slate-400 font-semibold">
                                 Nenhuma placa correspondente aos filtros e busca ativa.
                               </td>
                             </tr>
@@ -3610,9 +3712,6 @@ export default function Home() {
                             paginatedRankings.map((r, idx) => {
                               const overallPos = (currentPageClamped - 1) * rankingsPageSize + idx + 1;
                               const isMetaDone = r.statusMeta === 'Dentro da Meta';
-                              
-                              const associatedViagens = viagens.filter(v => v.placa === r.placa);
-                              const lastRoute = associatedViagens[0]?.rota || 'Sem rota programada';
                               
                               // Medal style or position styled badge representation
                               const medalStyle = 
@@ -3622,7 +3721,7 @@ export default function Home() {
                                 'bg-slate-50 text-slate-500 border-slate-100 font-semibold';
 
                               return (
-                                <tr key={`${r.placa}-${r.mes || ''}-${r.ano || ''}-${idx}`} className="hover:bg-slate-50/50 transition-colors">
+                                <tr key={`${r.placa}-${idx}`} className="hover:bg-slate-50/50 transition-colors">
                                   <td className="px-4 py-3.5 text-center">
                                     <span className={`inline-flex items-center justify-center w-6 h-6 rounded-full text-[11px] border ${medalStyle}`}>
                                       {overallPos}
@@ -3631,7 +3730,7 @@ export default function Home() {
                                   <td className="px-4 py-3.5">
                                     <PlateTooltip plateData={r}>
                                       <span className="cursor-help inline-block px-2.5 py-1 rounded-lg bg-[#eff4ff] text-[#004ac6] border border-[#c3c6d7]/30 font-mono text-[11px] font-extrabold hover:border-[#004ac6] transition-all whitespace-nowrap">
-                                        {r.placa} {r.mes && `(${r.mes.slice(0, 3)})`}
+                                        {r.placa}
                                       </span>
                                     </PlateTooltip>
                                   </td>
@@ -3641,8 +3740,8 @@ export default function Home() {
                                   <td className="px-4 py-3.5 text-slate-600 font-bold uppercase max-w-[160px] truncate" title={r.motorista || 'Sem motorista'}>
                                     {r.motorista || 'Sem motorista'}
                                   </td>
-                                  <td className="px-4 py-3.5 text-slate-500 font-medium truncate max-w-[180px]" title={lastRoute}>
-                                    {lastRoute}
+                                  <td className="px-4 py-3.5 text-slate-500 font-medium truncate max-w-[180px]" title={r.ultimaRota}>
+                                    {r.ultimaRota || 'Sem rota programada'}
                                   </td>
                                   <td className="px-4 py-3.5 text-center text-slate-800 font-black">
                                     {r.viagensCount}
@@ -3657,9 +3756,6 @@ export default function Home() {
                                   </td>
                                   <td className="px-4 py-3.5 text-right text-[#004ac6] font-black whitespace-nowrap">
                                     R$ {r.faturamentoTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                                  </td>
-                                  <td className="px-4 py-3.5 text-center text-slate-600 font-medium">
-                                    {r.viagensCount * 4}
                                   </td>
                                   <td className="px-4 py-3.5 text-right text-slate-600 whitespace-nowrap font-mono text-[11px] font-semibold">
                                     {r.kmRodadoTotal ? r.kmRodadoTotal.toLocaleString('pt-BR') : '0'} km

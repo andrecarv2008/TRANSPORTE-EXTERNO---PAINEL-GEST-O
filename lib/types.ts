@@ -57,6 +57,7 @@ export interface PlacaMetrics {
   targetMeta?: number;
   mes?: string;
   ano?: string | number;
+  ultimaRota?: string;
 }
 
 export interface MotoristaMetrics {

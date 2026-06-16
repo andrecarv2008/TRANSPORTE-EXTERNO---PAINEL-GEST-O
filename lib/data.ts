@@ -646,6 +646,7 @@ export function computePlacaMetrics(
     supervisores: Record<string, number>;
     motoristas: Record<string, number>;
     conhecimentos: Set<string>;
+    ultimaRota: string;
   }> = {};
 
   viagens.forEach(v => {
@@ -666,7 +667,8 @@ export function computePlacaMetrics(
         despesaOficinaTotal: 0,
         supervisores: {},
         motoristas: {},
-        conhecimentos: new Set<string>()
+        conhecimentos: new Set<string>(),
+        ultimaRota: ''
       };
     }
     const g = placaGroup[groupKey];
@@ -679,6 +681,10 @@ export function computePlacaMetrics(
 
     const mot = v.motorista || 'Sem Motorista';
     g.motoristas[mot] = (g.motoristas[mot] || 0) + 1;
+
+    if (v.rota) {
+      g.ultimaRota = v.rota;
+    }
 
     const conId = (v.conhecimento || v.id || '').trim();
     if (conId) {
@@ -741,7 +747,8 @@ export function computePlacaMetrics(
       despesaOficinaTotal: data.despesaOficinaTotal,
       targetMeta: targetTripsForThisPlate,
       mes: data.mes,
-      ano: data.ano
+      ano: data.ano,
+      ultimaRota: data.ultimaRota || 'Sem rota programada'
     };
   }).sort((a, b) => b.viagensCount - a.viagensCount || b.faturamentoTotal - a.faturamentoTotal);
 }
