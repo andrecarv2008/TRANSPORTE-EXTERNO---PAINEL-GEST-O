@@ -945,15 +945,15 @@ const PlacasDetailModal = ({ categoryLabel, rankings, onClose }: PlacasDetailMod
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {filteredRankings.map((r) => {
-                    const idx = rankings.findIndex(rank => rank.placa === r.placa) + 1;
+                  {filteredRankings.map((r, itemIdx) => {
+                    const idx = rankings.findIndex(rank => rank.placa === r.placa && rank.mes === r.mes && rank.ano === r.ano) + 1;
                     const faturamentoBruto = r.faturamentoTotal;
                     const despesaOficina = r.despesaOficinaTotal || 0;
                     const faturamentoLiquido = faturamentoBruto - despesaOficina;
                     const isInsideMeta = r.statusMeta === 'Dentro da Meta';
 
                     return (
-                      <tr key={r.placa} className="hover:bg-slate-50/70 transition-colors">
+                      <tr key={`${r.placa}-${r.mes || ''}-${r.ano || ''}-${itemIdx}`} className="hover:bg-slate-50/70 transition-colors">
                         <td className="px-4 py-3 text-center">
                           <span className={`inline-flex items-center justify-center w-6 h-6 rounded-full text-[10px] font-mono border ${
                             idx === 1 ? 'bg-amber-100 border-amber-300 text-amber-700 font-extrabold' : 
@@ -965,8 +965,8 @@ const PlacasDetailModal = ({ categoryLabel, rankings, onClose }: PlacasDetailMod
                           </span>
                         </td>
                         <td className="px-4 py-3">
-                          <span className="px-2 py-0.5 rounded text-[10px] font-mono font-black tracking-wider bg-blue-50 text-blue-700 border border-blue-200">
-                            {r.placa}
+                          <span className="px-2 py-0.5 rounded text-[10px] font-mono font-black tracking-wider bg-blue-50 text-blue-700 border border-blue-200 whitespace-nowrap">
+                            {r.placa} {r.mes && `(${r.mes.slice(0, 3)})`}
                           </span>
                         </td>
                         <td className="px-4 py-3 font-bold text-slate-700 uppercase truncate max-w-[320px]">
@@ -1527,7 +1527,7 @@ export default function Home() {
 
   // Compute metrics dynamically
   const metrics = React.useMemo(() => computeExecutiveMetrics(activeViagens), [activeViagens]);
-  const rankings = React.useMemo(() => computePlacaMetrics(activeViagens, viagens, activeMonthsCount), [activeViagens, viagens, activeMonthsCount]);
+  const rankings = React.useMemo(() => computePlacaMetrics(activeViagens, activeViagens, activeMonthsCount), [activeViagens, activeMonthsCount]);
   const motoristas = React.useMemo(() => computeMotoristaMetrics(activeViagens), [activeViagens]);
   const rotas = React.useMemo(() => computeRouteMetrics(activeViagens), [activeViagens]);
 
@@ -1536,7 +1536,7 @@ export default function Home() {
       ? selectedMeses.length 
       : mesesDrop.length;
     // Compute plate rankings for the filtered subset of trips to get the statusMeta correctly evaluated
-    const plateMetrics = computePlacaMetrics(activeViagens, viagens, rankingActiveMonthsCount);
+    const plateMetrics = computePlacaMetrics(activeViagens, activeViagens, rankingActiveMonthsCount);
     
     const supMap: Record<string, {
       supervisor: string;
@@ -1611,7 +1611,7 @@ export default function Home() {
       byViagens,
       byMeta
     };
-  }, [activeViagens, viagens, selectedMeses, mesesDrop]);
+  }, [activeViagens, selectedMeses, mesesDrop]);
 
   const sortedAndFilteredAllSupervisors = React.useMemo(() => {
     let result = [...computedSupervisorRankings.all];
@@ -2853,7 +2853,7 @@ export default function Home() {
                       {rankings.slice(0, 4).map((r, index) => {
                         const trophyColors = ["text-[#cca43b]", "text-[#737686]", "text-[#ab0b1c]"];
                         return (
-                          <div key={r.placa} className="flex items-center gap-4">
+                          <div key={`${r.placa}-${r.mes || ''}-${r.ano || ''}-${index}`} className="flex items-center gap-4">
                             <div className="w-8 h-8 flex items-center justify-center bg-[#eff4ff] rounded-lg">
                               {index < 3 ? (
                                 <Award className={`w-4.5 h-4.5 ${trophyColors[index] || 'text-[#737686]'}`} />
@@ -2864,7 +2864,7 @@ export default function Home() {
 
                             <div className="flex-1">
                               <div className="flex justify-between items-center text-xs font-bold leading-none mb-1.5">
-                                <span className="text-[#0b1c30]">{r.placa}</span>
+                                <span className="text-[#0b1c30]">{r.placa} {r.mes && `(${r.mes.slice(0, 3)})`}</span>
                                 <span className="text-[#004ac6] text-[10px]">{r.percentMeta}% meta</span>
                               </div>
                               <div className="w-full bg-[#eff4ff] h-1.5 rounded-full overflow-hidden">
@@ -2904,14 +2904,14 @@ export default function Home() {
                       {(() => {
                         const topRankings = rankings.slice(0, 6);
                         const maxFaturamentoPlaca = Math.max(...topRankings.map(r => r.faturamentoTotal), 1);
-                        return topRankings.map((r) => {
+                        return topRankings.map((r, index) => {
                           const isHighPerf = r.statusMeta === 'Dentro da Meta';
                           const formattedVal = r.faturamentoTotal.toLocaleString('pt-BR', { maximumFractionDigits: 0 });
                           const barWidthPercent = (r.faturamentoTotal / maxFaturamentoPlaca) * 100;
                           return (
-                            <div key={r.placa} className="flex items-center gap-4 group">
-                              <span className="w-20 text-[10px] font-extrabold text-[#434655] tracking-wider text-left leading-none uppercase">
-                                {r.placa}
+                            <div key={`${r.placa}-${r.mes || ''}-${r.ano || ''}-${index}`} className="flex items-center gap-4 group">
+                              <span className="w-20 text-[10px] font-extrabold text-[#434655] tracking-wider text-left leading-none uppercase truncate" title={`${r.placa} ${r.mes ? `(${r.mes})` : ''}`}>
+                                {r.placa} {r.mes && `(${r.mes.slice(0,3)})`}
                               </span>
                               <div className="flex-1 bg-gray-50 h-7.5 rounded-md overflow-hidden flex items-center relative pr-4">
                                 <motion.div
@@ -3018,39 +3018,12 @@ export default function Home() {
               const percentDentroFat = totalFaturamentoStatus > 0 ? (faturamentoDentro / totalFaturamentoStatus) * 100 : 0;
               const percentForaFat = totalFaturamentoStatus > 0 ? (faturamentoFora / totalFaturamentoStatus) * 100 : 0;
 
-              // Distribution of trips counts
-              const comboGroups: Record<string, Set<string>> = {};
-              activeViagens.forEach(v => {
-                const p = (v.placa || '').trim().toUpperCase();
-                if (!p) return;
-                const f = (v.filial || 'Filial São Luís').trim().toUpperCase();
-                const m = (v.mes || 'Maio').trim().toUpperCase();
-                const a = String(v.ano || '');
-                const comboKey = `${p} | ${f} | ${m} | ${a}`;
-                
-                if (!comboGroups[comboKey]) {
-                  comboGroups[comboKey] = new Set<string>();
-                }
-                const conId = (v.conhecimento || v.id || '').trim();
-                if (conId) {
-                  comboGroups[comboKey].add(conId);
-                }
-              });
-
-              let c1 = 0;
-              let c2 = 0;
-              let c3 = 0;
-              let c4 = 0;
-              let c5 = 0;
-
-              Object.values(comboGroups).forEach(conhecimentosSet => {
-                const count = conhecimentosSet.size;
-                if (count === 1) c1++;
-                else if (count === 2) c2++;
-                else if (count === 3) c3++;
-                else if (count === 4) c4++;
-                else if (count >= 5) c5++;
-              });
+              // Distribution of trips counts computed directly using plate rankings to ensure perfect alignment with modais & active filters
+              const c1 = rankings.filter(r => r.viagensCount === 1).length;
+              const c2 = rankings.filter(r => r.viagensCount === 2).length;
+              const c3 = rankings.filter(r => r.viagensCount === 3).length;
+              const c4 = rankings.filter(r => r.viagensCount === 4).length;
+              const c5 = rankings.filter(r => r.viagensCount >= 5).length;
 
               const totalForDist = c1 + c2 + c3 + c4 + c5 || 1;
 
@@ -3649,7 +3622,7 @@ export default function Home() {
                                 'bg-slate-50 text-slate-500 border-slate-100 font-semibold';
 
                               return (
-                                <tr key={r.placa} className="hover:bg-slate-50/50 transition-colors">
+                                <tr key={`${r.placa}-${r.mes || ''}-${r.ano || ''}-${idx}`} className="hover:bg-slate-50/50 transition-colors">
                                   <td className="px-4 py-3.5 text-center">
                                     <span className={`inline-flex items-center justify-center w-6 h-6 rounded-full text-[11px] border ${medalStyle}`}>
                                       {overallPos}
@@ -3658,7 +3631,7 @@ export default function Home() {
                                   <td className="px-4 py-3.5">
                                     <PlateTooltip plateData={r}>
                                       <span className="cursor-help inline-block px-2.5 py-1 rounded-lg bg-[#eff4ff] text-[#004ac6] border border-[#c3c6d7]/30 font-mono text-[11px] font-extrabold hover:border-[#004ac6] transition-all whitespace-nowrap">
-                                        {r.placa}
+                                        {r.placa} {r.mes && `(${r.mes.slice(0, 3)})`}
                                       </span>
                                     </PlateTooltip>
                                   </td>

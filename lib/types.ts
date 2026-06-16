@@ -55,6 +55,8 @@ export interface PlacaMetrics {
   statusMeta?: string;
   despesaOficinaTotal?: number;
   targetMeta?: number;
+  mes?: string;
+  ano?: string | number;
 }
 
 export interface MotoristaMetrics {
