@@ -947,18 +947,18 @@ const PlacasDetailModal = ({ categoryLabel, rankings, onClose }: PlacasDetailMod
 
   return (
     <div 
-      className="fixed inset-0 bg-[#0b1c30]/60 backdrop-blur-xs z-55 flex items-center justify-center p-4 md:p-6"
+      className="fixed inset-0 bg-[#0b1c30]/60 backdrop-blur-xs z-55 flex items-center justify-center p-2 md:p-4"
       onClick={onClose}
     >
       <div 
-        className="bg-white w-full max-w-6xl xl:max-w-7xl rounded-2xl shadow-2xl border border-[#c3c6d7]/30 flex flex-col max-h-[90vh] overflow-hidden"
+        className="bg-white w-[98vw] max-w-7xl xl:max-w-[96%] rounded-2xl shadow-2xl border border-[#c3c6d7]/30 flex flex-col h-[94vh] max-h-[94vh] overflow-hidden"
         onClick={e => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="bg-[#0b1c30] px-6 py-4 flex items-center justify-between border-b border-white/10 shrink-0">
+        <div className="bg-[#0b1c30] px-6 py-3.5 flex items-center justify-between border-b border-white/10 shrink-0">
           <div>
             <p className="text-[10px] font-black text-blue-400 uppercase tracking-widest leading-none">Detalhamento por Faixa de Viagens</p>
-            <h2 className="text-lg font-black text-white mt-1 uppercase leading-tight">Placas na categoria: {categoryLabel}</h2>
+            <h2 className="text-base md:text-lg font-black text-white mt-1 uppercase leading-tight">Placas na categoria: {categoryLabel}</h2>
             <p className="text-xs text-slate-300 mt-1 font-medium font-sans">
               Total nesta faixa: <span className="text-white font-extrabold">{filteredRankings.length} veículos</span>
             </p>
@@ -972,46 +972,46 @@ const PlacasDetailModal = ({ categoryLabel, rankings, onClose }: PlacasDetailMod
         </div>
 
         {/* Mini Summary Cards inside Modal */}
-        <div className="bg-slate-50 border-b border-slate-100 p-4 shrink-0 grid grid-cols-3 gap-4 font-sans text-xs">
-          <div className="bg-white p-3 rounded-xl border border-slate-200/65 shadow-xs">
+        <div className="bg-slate-50 border-b border-slate-100 p-3 shrink-0 grid grid-cols-3 gap-3 font-sans text-xs">
+          <div className="bg-white p-2.5 rounded-xl border border-slate-200/65 shadow-xs">
             <span className="text-[9px] text-[#737686] font-bold uppercase tracking-wider block">Faturamento Bruto Total</span>
-            <span className="text-sm font-black text-blue-600 block mt-1">
+            <span className="text-xs md:text-sm font-black text-blue-600 block mt-0.5">
               R$ {totalFaturamento.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
             </span>
           </div>
-          <div className="bg-white p-3 rounded-xl border border-slate-200/65 shadow-xs">
+          <div className="bg-white p-2.5 rounded-xl border border-slate-200/65 shadow-xs">
             <span className="text-[9px] text-[#737686] font-bold uppercase tracking-wider block">Despesa Oficina Total</span>
-            <span className="text-sm font-black text-red-500 block mt-1">
+            <span className="text-xs md:text-sm font-black text-red-500 block mt-0.5">
               R$ {totalDespesa.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
             </span>
           </div>
-          <div className="bg-white p-3 rounded-xl border border-slate-200/65 shadow-xs">
+          <div className="bg-white p-2.5 rounded-xl border border-slate-200/65 shadow-xs">
             <span className="text-[9px] text-[#737686] font-bold uppercase tracking-wider block">Faturamento Líquido Total</span>
-            <span className="text-sm font-black text-emerald-600 block mt-1">
+            <span className="text-xs md:text-sm font-black text-emerald-600 block mt-0.5">
               R$ {totalLiquido.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
             </span>
           </div>
         </div>
 
         {/* Table Body Content */}
-        <div className="flex-1 overflow-y-auto p-6 min-h-0">
+        <div className="flex-1 overflow-y-auto p-4 md:p-6 min-h-0">
           {filteredRankings.length === 0 ? (
             <div className="text-center py-12 text-slate-400">
               <p className="text-sm font-bold font-sans">Nenhum veículo encontrado nesta faixa para os filtros selecionados.</p>
             </div>
           ) : (
             <div className="overflow-hidden border border-slate-200 rounded-xl bg-white shadow-xs">
-              <table className="w-full text-left text-xs font-sans">
-                <thead className="bg-slate-100 text-[10px] uppercase font-black tracking-wider text-slate-500 border-b border-slate-200">
+              <table className="w-full text-left text-xs md:text-[13px] font-sans">
+                <thead className="bg-slate-100/90 text-[10px] md:text-xs uppercase font-black tracking-wider text-slate-500 border-b border-slate-200">
                   <tr>
-                    <th className="px-4 py-3 text-center w-16">Classif.</th>
-                    <th className="px-4 py-3">Placa</th>
-                    <th className="px-4 py-3">Motorista</th>
-                    <th className="px-4 py-3">Supervisor</th>
-                    <th className="px-4 py-3 text-center">Viagens</th>
-                    <th className="px-4 py-3 text-right">Fat. Bruto</th>
-                    <th className="px-4 py-3 text-right">Faturamento Líquido</th>
-                    <th className="px-4 py-3 text-center">Meta</th>
+                    <th className="px-3 md:px-4 py-2.5 text-center w-16">Classif.</th>
+                    <th className="px-3 md:px-4 py-2.5">Placa</th>
+                    <th className="px-3 md:px-4 py-2.5">Motorista</th>
+                    <th className="px-3 md:px-4 py-2.5">Supervisor</th>
+                    <th className="px-3 md:px-4 py-2.5 text-center">Viagens</th>
+                    <th className="px-3 md:px-4 py-2.5 text-right">Fat. Bruto</th>
+                    <th className="px-3 md:px-4 py-2.5 text-right">Faturamento Líquido</th>
+                    <th className="px-3 md:px-4 py-2.5 text-center">Meta</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
@@ -1024,8 +1024,8 @@ const PlacasDetailModal = ({ categoryLabel, rankings, onClose }: PlacasDetailMod
 
                     return (
                       <tr key={`${r.placa}-${r.mes || ''}-${r.ano || ''}-${itemIdx}`} className="hover:bg-slate-50/70 transition-colors">
-                        <td className="px-4 py-3 text-center">
-                          <span className={`inline-flex items-center justify-center w-6 h-6 rounded-full text-[10px] font-mono border ${
+                        <td className="px-3 md:px-4 py-2 text-center align-middle">
+                          <span className={`inline-flex items-center justify-center w-5 h-5 rounded-full text-[9px] font-mono border ${
                             idx === 1 ? 'bg-amber-100 border-amber-300 text-amber-700 font-extrabold' : 
                             idx === 2 ? 'bg-slate-100 border-slate-300 text-slate-700 font-extrabold' :
                             idx === 3 ? 'bg-orange-50 border-orange-200 text-orange-700 font-extrabold' :
@@ -1034,11 +1034,11 @@ const PlacasDetailModal = ({ categoryLabel, rankings, onClose }: PlacasDetailMod
                             {idx}
                           </span>
                         </td>
-                        <td className="px-4 py-3">
-                          <div className="flex flex-col gap-1 items-start">
+                        <td className="px-3 md:px-4 py-2 align-middle">
+                          <div className="flex flex-col gap-0.5 items-start">
                             <span 
                               title={r.statusFaturamento === 'SEM FATURAMENTO' ? 'Veículo sem faturamento no período selecionado' : undefined}
-                              className={`px-2.5 py-1 rounded text-[10px] font-mono font-black tracking-wider border whitespace-nowrap ${
+                              className={`px-2 py-0.5 rounded text-[10px] font-mono font-black tracking-wider border whitespace-nowrap ${
                                 r.statusFaturamento === 'SEM FATURAMENTO'
                                   ? 'bg-rose-50 text-rose-700 border-rose-250 cursor-help'
                                   : 'bg-blue-50 text-blue-700 border-blue-200'
@@ -1047,32 +1047,32 @@ const PlacasDetailModal = ({ categoryLabel, rankings, onClose }: PlacasDetailMod
                               {r.placa} {r.mes && `(${r.mes.slice(0, 3)})`}
                             </span>
                             {r.statusFaturamento === 'SEM FATURAMENTO' ? (
-                              <span className="inline-block text-[9px] bg-rose-50 text-rose-600 border border-rose-200 rounded px-1 py-0.5 leading-none font-black select-none uppercase tracking-wider">
+                              <span className="inline-block text-[8px] bg-rose-50 text-rose-600 border border-rose-200 rounded px-1 tracking-wider font-extrabold leading-none uppercase">
                                 SEM FATURAMENTO
                               </span>
                             ) : (
-                              <span className="inline-block text-[9px] bg-emerald-50 text-emerald-700 border border-emerald-200 rounded px-1 py-0.5 leading-none font-black select-none uppercase tracking-wider">
+                              <span className="inline-block text-[8px] bg-emerald-50 text-emerald-700 border border-emerald-200 rounded px-1 tracking-wider font-extrabold leading-none uppercase">
                                 FATUROU
                               </span>
                             )}
                           </div>
                         </td>
-                        <td className="px-4 py-3 font-bold text-slate-700 uppercase truncate max-w-[320px]">
+                        <td className="px-3 md:px-4 py-2 font-bold text-slate-700 uppercase truncate max-w-[280px] align-middle">
                           {r.motorista || 'Sem Motorista'}
                         </td>
-                        <td className="px-4 py-3 font-bold text-slate-500 uppercase truncate max-w-[240px]">
+                        <td className="px-3 md:px-4 py-2 font-bold text-slate-500 uppercase truncate max-w-[200px] align-middle">
                           {r.supervisor || 'Sem Supervisor'}
                         </td>
-                        <td className="px-4 py-3 text-center font-black text-slate-800">
+                        <td className="px-3 md:px-4 py-2 text-center font-black text-slate-800 align-middle">
                           {r.viagensCount}
                         </td>
-                        <td className="px-4 py-3 text-right text-slate-600 font-bold font-mono">
+                        <td className="px-3 md:px-4 py-2 text-right text-slate-600 font-bold font-mono align-middle">
                           R$ {faturamentoBruto.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </td>
-                        <td className="px-4 py-3 text-right font-black text-emerald-600 font-mono">
+                        <td className="px-3 md:px-4 py-2 text-right font-black text-emerald-600 font-mono align-middle">
                           R$ {faturamentoLiquido.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </td>
-                        <td className="px-4 py-3 text-center">
+                        <td className="px-3 md:px-4 py-2 text-center align-middle">
                           <span className={`text-[9px] font-black px-2 py-0.5 rounded-full whitespace-nowrap ${
                             isInsideMeta ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-red-50 text-red-700 border border-red-200'
                           }`}>
@@ -1089,7 +1089,7 @@ const PlacasDetailModal = ({ categoryLabel, rankings, onClose }: PlacasDetailMod
         </div>
         
         {/* Footer */}
-        <div className="bg-slate-50 px-6 py-3.5 border-t border-slate-100 text-right shrink-0">
+        <div className="bg-slate-50 px-6 py-3 border-t border-slate-100 text-right shrink-0">
           <button
             onClick={onClose}
             className="px-4 py-1.5 bg-[#0b1c30] text-white text-xs font-black rounded-lg hover:bg-opacity-90 transition-colors uppercase tracking-wider cursor-pointer"
@@ -1293,19 +1293,19 @@ const PotentialRevenueDetailModal = ({ mesSelected, preFilteredViagens, onClose 
 
   return (
     <div 
-      className="fixed inset-0 bg-[#0b1c30]/65 backdrop-blur-xs z-55 flex items-center justify-center p-4 md:p-6"
+      className="fixed inset-0 bg-[#0b1c30]/65 backdrop-blur-xs z-55 flex items-center justify-center p-2 md:p-4"
       onClick={onClose}
     >
       <div 
-        className="bg-white w-full max-w-6xl xl:max-w-7xl rounded-2xl shadow-2xl border border-[#c3c6d7]/30 flex flex-col max-h-[90vh] overflow-hidden"
+        className="bg-white w-[98vw] max-w-7xl xl:max-w-[96%] rounded-2xl shadow-2xl border border-[#c3c6d7]/30 flex flex-col h-[94vh] max-h-[94vh] overflow-hidden"
         onClick={e => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="bg-[#0b1c30] px-6 py-4 flex items-center justify-between border-b border-white/10 shrink-0">
+        <div className="bg-[#0b1c30] px-6 py-3 md:py-3.5 flex items-center justify-between border-b border-white/10 shrink-0">
           <div>
             <p className="text-[10px] font-black text-amber-400 uppercase tracking-widest leading-none">Oportunidade e Receita Não Realizada</p>
-            <h2 className="text-lg font-black text-white mt-1 uppercase leading-tight">Placas sem Faturamento em {mesSelected}</h2>
-            <p className="text-xs text-slate-350 mt-1 font-medium font-sans">
+            <h2 className="text-base md:text-lg font-black text-white mt-1 uppercase leading-tight">Placas sem Faturamento em {mesSelected}</h2>
+            <p className="text-xs text-slate-355 mt-0.5 font-medium font-sans">
               Consulte aqui o detalhamento de veículos ociosos no mês ou filtre termos na busca inteligente.
             </p>
           </div>
@@ -1318,71 +1318,71 @@ const PotentialRevenueDetailModal = ({ mesSelected, preFilteredViagens, onClose 
         </div>
 
         {/* Dynamic Monthly KPI Summaries */}
-        <div className="bg-slate-50 border-b border-slate-100 p-4 shrink-0 grid grid-cols-1 sm:grid-cols-3 gap-4 font-sans text-xs">
-          <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-xs flex flex-col justify-between">
+        <div className="bg-slate-50 border-b border-slate-100 p-3 shrink-0 grid grid-cols-1 sm:grid-cols-3 gap-3 font-sans text-xs">
+          <div className="bg-white p-2.5 rounded-xl border border-slate-200 shadow-xs flex flex-col justify-between">
             <div>
-              <span className="text-[10px] text-[#737686] font-extrabold uppercase tracking-wider block">Veículos Não Faturados ({mesSelected})</span>
-              <span className="text-2xl font-black text-amber-600 block mt-1">
+              <span className="text-[9px] text-[#737686] font-extrabold uppercase tracking-wider block">Veículos Não Faturados ({mesSelected})</span>
+              <span className="text-xl md:text-2xl font-black text-amber-600 block mt-0.5 animate-pulse">
                 {totalUnbilledPlatesCount}
               </span>
             </div>
-            <span className="text-[10px] text-gray-400 mt-2 block">
+            <span className="text-[10px] text-gray-400 mt-1 block">
               Placas sem viagens produtivas faturadas no mês.
             </span>
           </div>
 
-          <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-xs flex flex-col justify-between">
+          <div className="bg-white p-2.5 rounded-xl border border-slate-200 shadow-xs flex flex-col justify-between">
             <div>
-              <span className="text-[10px] text-[#737686] font-extrabold uppercase tracking-wider block">Faturamento Médio por Placa Ativa</span>
-              <span className="text-2xl font-black text-blue-600 block mt-1">
+              <span className="text-[9px] text-[#737686] font-extrabold uppercase tracking-wider block">Faturamento Médio por Placa Ativa</span>
+              <span className="text-xl md:text-2xl font-black text-blue-600 block mt-0.5">
                 R$ {faturamentoMedio.toLocaleString('pt-BR', { maximumFractionDigits: 2 })}
               </span>
             </div>
-            <span className="text-[10px] text-gray-400 mt-2 block">
+            <span className="text-[10px] text-gray-400 mt-1 block">
               Ticket médio gerado por veículos produtivos faturantes.
             </span>
           </div>
 
-          <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-xs flex flex-col justify-between bg-amber-50/15 border-amber-250/30">
+          <div className="bg-white p-2.5 rounded-xl border border-slate-200 shadow-xs flex flex-col justify-between bg-amber-50/15 border-amber-250/30">
             <div>
-              <span className="text-[10px] text-amber-700 font-extrabold uppercase tracking-wider block">Receita Potencial Não Faturada</span>
-              <span className="text-2xl font-black text-rose-600 block mt-1">
+              <span className="text-[9px] text-amber-700 font-extrabold uppercase tracking-wider block">Receita Potencial Não Faturada</span>
+              <span className="text-xl md:text-2xl font-black text-rose-600 block mt-0.5">
                 R$ {totalReceitaPotencialFaltante.toLocaleString('pt-BR', { maximumFractionDigits: 2 })}
               </span>
             </div>
-            <span className="text-[10px] text-amber-600 font-bold mt-2 block">
+            <span className="text-[10px] text-amber-600 font-bold mt-1 block">
               Perda potencial calculada para as {totalUnbilledPlatesCount} placas inativas.
             </span>
           </div>
         </div>
 
         {/* Filter and Search controls */}
-        <div className="px-6 py-3.5 bg-white border-b border-slate-100 flex flex-col sm:flex-row items-center gap-3 justify-between shrink-0">
+        <div className="px-6 py-2 bg-white border-b border-slate-100 flex flex-col sm:flex-row items-center gap-3 justify-between shrink-0">
           <div className="relative w-full sm:max-w-md">
-            <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
+            <Search className="absolute left-3 top-2 h-4 w-4 text-slate-400" />
             <input
               type="text"
               placeholder="Buscar por placa, filial, motorista, supervisor, rota ou veículo..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="pl-9 pr-4 py-1.5 w-full bg-slate-50 border border-slate-300 rounded-lg text-xs font-medium focus:outline-hidden focus:ring-1 focus:ring-blue-500 focus:border-blue-500 transition-all font-sans"
+              className="pl-9 pr-4 py-1 w-full bg-slate-50 border border-slate-300 rounded-lg text-xs font-medium focus:outline-hidden focus:ring-1 focus:ring-blue-500 focus:border-blue-500 transition-all font-sans"
             />
             {search && (
               <button 
                 onClick={() => setSearch('')}
-                className="absolute right-3 top-2 text-slate-400 hover:text-slate-600 text-xs"
+                className="absolute right-3 top-1.5 text-slate-400 hover:text-slate-600 text-xs"
               >
                 ✕
               </button>
             )}
           </div>
-          <div className="text-[11px] text-[#737686] font-bold uppercase tracking-wider flex items-center gap-1.5">
+          <div className="text-[10px] md:text-[11px] text-[#737686] font-bold uppercase tracking-wider flex items-center gap-1.5">
             Exibindo <span className="text-slate-900 font-extrabold font-mono">{sortedPlates.length}</span> de <span className="text-slate-900 font-extrabold font-mono">{totalUnbilledPlatesCount}</span> placas sem faturamento
           </div>
         </div>
 
         {/* Table Body Content */}
-        <div className="flex-1 overflow-y-auto p-6 min-h-0 bg-slate-50">
+        <div className="flex-1 overflow-y-auto p-4 md:p-6 min-h-0 bg-slate-50">
           {sortedPlates.length === 0 ? (
             <div className="text-center py-16 bg-white border border-slate-200 rounded-xl shadow-xs">
               <AlertTriangle className="mx-auto h-12 w-12 text-slate-400 mb-2" />
@@ -1391,29 +1391,29 @@ const PotentialRevenueDetailModal = ({ mesSelected, preFilteredViagens, onClose 
             </div>
           ) : (
             <div className="overflow-hidden border border-slate-200 rounded-xl bg-white shadow-md">
-              <table className="w-full text-left text-sm font-sans">
-                <thead className="bg-slate-100/90 text-slate-600 text-[11px] md:text-xs uppercase font-black tracking-wider border-b border-slate-200">
+              <table className="w-full text-left text-xs md:text-[13px] font-sans">
+                <thead className="bg-slate-100/90 text-slate-600 text-[10px] md:text-xs uppercase font-black tracking-wider border-b border-slate-200">
                   <tr>
-                    <th className="px-5 py-3.5 cursor-pointer select-none text-center w-36 bg-slate-50/50" onClick={() => handleSort('placa')}>
+                    <th className="px-3 md:px-4 py-2.5 cursor-pointer select-none text-center w-36 bg-slate-50/50" onClick={() => handleSort('placa')}>
                       Placa {getSortIndicator('placa')}
                     </th>
-                    <th className="px-5 py-3.5 cursor-pointer select-none" onClick={() => handleSort('filial')}>
+                    <th className="px-3 md:px-5 py-2.5 cursor-pointer select-none" onClick={() => handleSort('filial')}>
                       Filial / Unidade {getSortIndicator('filial')}
                     </th>
-                    <th className="px-5 py-3.5 cursor-pointer select-none" onClick={() => handleSort('motorista')}>
+                    <th className="px-3 md:px-5 py-2.5 cursor-pointer select-none" onClick={() => handleSort('motorista')}>
                       Último Motorista {getSortIndicator('motorista')}
                     </th>
-                    <th className="px-5 py-3.5 cursor-pointer select-none" onClick={() => handleSort('supervisor')}>
+                    <th className="px-3 md:px-5 py-2.5 cursor-pointer select-none" onClick={() => handleSort('supervisor')}>
                       Supervisor Responsável {getSortIndicator('supervisor')}
                     </th>
-                    <th className="px-5 py-3.5 cursor-pointer select-none text-center" onClick={() => handleSort('viagensCount')}>
+                    <th className="px-3 md:px-5 py-2.5 cursor-pointer select-none text-center" onClick={() => handleSort('viagensCount')}>
                       Viagens {getSortIndicator('viagensCount')}
                     </th>
-                    <th className="px-5 py-3.5 cursor-pointer select-none text-right" onClick={() => handleSort('kmRodadoTotal')}>
+                    <th className="px-3 md:px-5 py-2.5 cursor-pointer select-none text-right" onClick={() => handleSort('kmRodadoTotal')}>
                       KM Percorrido {getSortIndicator('kmRodadoTotal')}
                     </th>
-                    <th className="px-5 py-3.5">Rotas Recorrentes no Mês</th>
-                    <th className="px-5 py-3.5">Tipo de Veículo</th>
+                    <th className="px-3 md:px-5 py-2.5">Rotas Recorrentes no Mês</th>
+                    <th className="px-3 md:px-5 py-2.5">Tipo de Veículo</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-150">
@@ -1425,7 +1425,7 @@ const PotentialRevenueDetailModal = ({ mesSelected, preFilteredViagens, onClose 
 
                     return (
                       <tr key={`${item.placa}-${itemIdx}`} className="hover:bg-blue-50/10 transition-colors">
-                        <td className="px-4 py-3.5 text-center bg-slate-50/30 whitespace-nowrap align-middle">
+                        <td className="px-3 md:px-4 py-1.5 md:py-2 text-center bg-slate-50/30 whitespace-nowrap align-middle">
                           {/* Authentic Mercosul Styled Plate Badge */}
                           <div className="inline-flex flex-col w-28 h-9 border-2 border-slate-400 rounded-md bg-white shadow-xs select-none shrink-0 overflow-hidden">
                             {/* Blue Upper Strip with BRASIL & Mini Icon */}
@@ -1442,25 +1442,25 @@ const PotentialRevenueDetailModal = ({ mesSelected, preFilteredViagens, onClose 
                             </div>
                           </div>
                         </td>
-                        <td className="px-5 py-3.5 text-xs md:text-[13px] font-bold text-slate-800 uppercase leading-snug">
+                        <td className="px-3 md:px-5 py-1.5 md:py-2 text-xs md:text-[13px] font-bold text-slate-800 uppercase leading-snug align-middle">
                           {item.filial}
                         </td>
-                        <td className="px-5 py-3.5 text-xs md:text-[13px] font-semibold text-slate-700 uppercase truncate max-w-[220px]" title={item.motorista}>
+                        <td className="px-3 md:px-5 py-1.5 md:py-2 text-xs md:text-[13px] font-semibold text-slate-700 uppercase truncate max-w-[220px] align-middle" title={item.motorista}>
                           {item.motorista}
                         </td>
-                        <td className="px-5 py-3.5 text-xs md:text-[13px] font-bold text-slate-600 uppercase truncate max-w-[180px]" title={item.supervisor}>
+                        <td className="px-3 md:px-5 py-1.5 md:py-2 text-xs md:text-[13px] font-bold text-slate-600 uppercase truncate max-w-[180px] align-middle" title={item.supervisor}>
                           {item.supervisor}
                         </td>
-                        <td className="px-5 py-3.5 text-center text-xs md:text-[13px] font-black text-slate-900">
+                        <td className="px-3 md:px-5 py-1.5 md:py-2 text-center text-xs md:text-[13px] font-black text-slate-900 align-middle">
                           {item.viagensCount}
                         </td>
-                        <td className="px-5 py-3.5 text-right text-xs md:text-[13px] font-extrabold text-slate-800 font-mono">
+                        <td className="px-3 md:px-5 py-1.5 md:py-2 text-right text-xs md:text-[13px] font-extrabold text-slate-800 font-mono align-middle">
                           {item.kmRodadoTotal.toLocaleString('pt-BR')} km
                         </td>
-                        <td className="px-5 py-3.5 text-xs md:text-[13px] text-slate-600 font-medium truncate max-w-[240px]" title={item.rotas}>
+                        <td className="px-3 md:px-5 py-1.5 md:py-2 text-xs md:text-[13px] text-slate-600 font-medium truncate max-w-[240px] align-middle" title={item.rotas}>
                           {item.rotas}
                         </td>
-                        <td className="px-5 py-3.5 text-xs md:text-[13px] text-slate-500 truncate max-w-[160px] align-middle" title={item.tipoVeiculo}>
+                        <td className="px-3 md:px-5 py-1.5 md:py-2 text-xs md:text-[13px] text-slate-500 truncate max-w-[160px] align-middle" title={item.tipoVeiculo}>
                           <span className="px-2.5 py-1 bg-slate-100 text-slate-700 text-[10px] md:text-[11px] font-extrabold rounded-md uppercase border border-slate-200">
                             {item.tipoVeiculo}
                           </span>
@@ -1475,13 +1475,13 @@ const PotentialRevenueDetailModal = ({ mesSelected, preFilteredViagens, onClose 
         </div>
         
         {/* Footer */}
-        <div className="bg-slate-50 px-6 py-4 border-t border-slate-100 flex items-center justify-between shrink-0">
-          <div className="text-[11px] text-[#737686] font-bold uppercase tracking-wider">
+        <div className="bg-slate-50 px-6 py-3 border-t border-slate-100 flex items-center justify-between shrink-0">
+          <div className="text-[10px] md:text-[11px] text-[#737686] font-bold uppercase tracking-wider">
             Unidade Transp. Externo - Grupo Mateus
           </div>
           <button
             onClick={onClose}
-            className="px-5 py-2 bg-[#0b1c30] text-white text-xs font-black rounded-lg hover:bg-opacity-90 transition-colors uppercase tracking-wider cursor-pointer shadow-sm hover:shadow-md"
+            className="px-5 py-1.5 bg-[#0b1c30] text-white text-xs font-black rounded-lg hover:bg-opacity-90 transition-colors uppercase tracking-wider cursor-pointer shadow-sm hover:shadow-md"
           >
             Fechar
           </button>
@@ -3111,9 +3111,9 @@ export default function Home() {
       </aside>
 
       {/* Main Canvas layout */}
-      <div className="ml-0 lg:ml-64 flex-1 min-h-screen flex flex-col w-full transition-all duration-300">
+      <div className="ml-0 lg:ml-64 flex-1 min-h-screen flex flex-col min-w-0 transition-all duration-300">
         {/* Top App Bar inside standard layouts */}
-        <header className="flex justify-between items-center w-full px-4 sm:px-6 lg:px-8 h-16 bg-white border-b border-[#c3c6d7]/40 sticky top-0 z-30">
+        <header className="flex flex-col md:flex-row md:items-center justify-between gap-3 w-full px-4 sm:px-6 lg:px-8 min-h-16 py-3 bg-white border-b border-[#c3c6d7]/40 sticky top-0 z-30">
           <div className="flex items-center gap-2.5 sm:gap-4 md:gap-6 min-w-0 flex-1 lg:flex-initial">
             {/* Sidebar toggle menu button on mobile */}
             <button
@@ -3357,171 +3357,169 @@ export default function Home() {
                     <span className="w-1.5 h-1.5 rounded-full bg-[#00714d] animate-pulse" />
                     <span className="font-extrabold text-[#00714d] tracking-wider uppercase pr-1.5 border-r border-slate-200">Sincronizado</span>
                     <span className="text-[#004ac6] font-semibold pl-0.5">
-                      Última atualização: {lastUpdate ? lastUpdate.lastUploadedAt.replace(' às', '') : '01/06/2026 16:10'}
+                      Última atualização: {lastUpdate ? lastUpdate.lastUploadedAt.replace(' às', '') : '17/06/2026 11:37'}
                     </span>
                   </div>
                 </header>
 
-
-
                 {/* KPI metrics row */}
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-10 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-5">
                   {/* KPI 1: Faturamento */}
-                  <div className="bg-white border border-[#c3c6d7]/30 p-4 rounded-xl shadow-xs group hover:border-[#004ac6] transition-colors flex flex-col justify-between">
+                  <div className="bg-white border border-[#c3c6d7]/30 p-5 sm:p-6 rounded-2xl shadow-xs group hover:border-[#004ac6] transition-colors flex flex-col justify-between">
                     <div>
                       <div className="flex items-center justify-between">
-                        <span className="text-[11px] font-bold text-[#737686] uppercase">Faturamento</span>
+                        <span className="text-xs font-bold text-[#737686] uppercase">Faturamento</span>
                         <span className="text-[10px] font-bold text-[#00714d] bg-[#6cf8bb]/35 px-1.5 py-0.5 rounded-sm flex items-center gap-0.5">
                           <TrendingUp className="w-2.5 h-2.5" /> +12%
                         </span>
                       </div>
-                      <p className="text-xl font-black text-[#004ac6] tracking-tight mt-2.5">
+                      <p className="text-2xl sm:text-3xl font-black text-[#004ac6] tracking-tight mt-3">
                         R$ {metrics.faturamentoTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </p>
                     </div>
-                    <p className="text-[9px] text-[#737686] mt-3 font-semibold uppercase tracking-wider">
+                    <p className="text-[10px] text-[#737686] mt-4 font-bold uppercase tracking-wider">
                       Soma Valor Carga R$
                     </p>
                   </div>
 
                   {/* KPI 2: Total de Viagens */}
-                  <div className="bg-white border border-[#c3c6d7]/30 p-4 rounded-xl shadow-xs flex flex-col justify-between">
+                  <div className="bg-white border border-[#c3c6d7]/30 p-5 sm:p-6 rounded-2xl shadow-xs flex flex-col justify-between">
                     <div>
-                      <span className="text-[11px] font-bold text-[#737686] uppercase">Total Viagens</span>
-                      <p className="text-2xl font-black text-[#0b1c30] tracking-tight mt-2.5">
-                        {metrics.totalViagens}
+                      <span className="text-xs font-bold text-[#737686] uppercase">Total Viagens</span>
+                      <p className="text-3xl sm:text-4xl font-black text-[#0b1c30] tracking-tight mt-3">
+                        {metrics.totalViagens.toLocaleString('pt-BR')}
                       </p>
                     </div>
-                    <p className="text-[9px] text-[#737686] mt-3 font-semibold uppercase tracking-wider">
+                    <p className="text-[10px] text-[#737686] mt-4 font-bold uppercase tracking-wider">
                       Realizadas no período
                     </p>
                   </div>
 
                   {/* KPI: KM TOTAL RODADO */}
-                  <div className="bg-white border border-[#c3c6d7]/30 p-4 rounded-xl shadow-xs flex flex-col justify-between">
+                  <div className="bg-white border border-[#c3c6d7]/30 p-5 sm:p-6 rounded-2xl shadow-xs flex flex-col justify-between">
                     <div>
                       <div className="flex items-center justify-between">
-                        <span className="text-[11px] font-bold text-[#737686] uppercase">KM Total Rodado</span>
+                        <span className="text-xs font-bold text-[#737686] uppercase">KM Total Rodado</span>
                         <span className="text-[10px] font-bold text-[#004ac6] bg-[#eff4ff] px-1.5 py-0.5 rounded-sm flex items-center gap-0.5">
                           <Route className="w-2.5 h-2.5" /> Km
                         </span>
                       </div>
-                      <p className="text-2xl font-black text-[#0b1c30] tracking-tight mt-2.5">
+                      <p className="text-3xl sm:text-4xl font-black text-[#0b1c30] tracking-tight mt-3">
                         {metrics.kmRodadoTotal.toLocaleString('pt-BR')}
                       </p>
                     </div>
-                    <p className="text-[9px] text-[#737686] mt-3 font-semibold uppercase tracking-wider">
+                    <p className="text-[10px] text-[#737686] mt-4 font-bold uppercase tracking-wider">
                       Total de Km rodado
                     </p>
                   </div>
 
                   {/* KPI 3: Meta Global */}
-                  <div className="bg-white border border-[#c3c6d7]/30 p-4 rounded-xl shadow-xs flex flex-col justify-between">
+                  <div className="bg-white border border-[#c3c6d7]/30 p-5 sm:p-6 rounded-2xl shadow-xs flex flex-col justify-between">
                     <div>
-                      <span className="text-[11px] font-bold text-[#737686] uppercase">Meta Global</span>
-                      <p className="text-2xl font-black text-[#0b1c30] tracking-tight mt-2.5">
-                        {metrics.metaGlobal}
+                      <span className="text-xs font-bold text-[#737686] uppercase">Meta Global</span>
+                      <p className="text-3xl sm:text-4xl font-black text-[#0b1c30] tracking-tight mt-3">
+                        {metrics.metaGlobal.toLocaleString('pt-BR')}
                       </p>
                     </div>
-                    <p className="text-[9px] text-[#737686] mt-3 font-semibold uppercase tracking-wider">
+                    <p className="text-[10px] text-[#737686] mt-4 font-bold uppercase tracking-wider">
                       Viagens desejadas
                     </p>
                   </div>
 
                   {/* KPI 4: % Meta Atingida */}
-                  <div className="bg-white border border-[#c3c6d7]/30 p-4 rounded-xl shadow-xs flex flex-col justify-between">
+                  <div className="bg-white border border-[#c3c6d7]/30 p-5 sm:p-6 rounded-2xl shadow-xs flex flex-col justify-between">
                     <div>
-                      <span className="text-[11px] font-bold text-[#737686] uppercase">% Atingido</span>
-                      <p className="text-2xl font-black text-[#004ac6] tracking-tight mt-2.5">
+                      <span className="text-xs font-bold text-[#737686] uppercase">% Atingido</span>
+                      <p className="text-3xl sm:text-4xl font-black text-[#004ac6] tracking-tight mt-3">
                         {metrics.percentMetaAtingida}%
                       </p>
-                      <div className="w-full h-1 bg-gray-100 rounded-full mt-2 overflow-hidden">
+                      <div className="w-full h-1.5 bg-gray-100 rounded-full mt-3 overflow-hidden">
                         <div className="h-full bg-[#004ac6]" style={{ width: `${Math.min(100, metrics.percentMetaAtingida)}%` }} />
                       </div>
                     </div>
-                    <p className="text-[9px] text-[#737686] mt-3 font-semibold uppercase tracking-wider">
+                    <p className="text-[10px] text-[#737686] mt-4 font-bold uppercase tracking-wider">
                       Capacidade total
                     </p>
                   </div>
 
                   {/* KPI 5: Total Placas */}
-                  <div className="bg-white border border-[#c3c6d7]/30 p-4 rounded-xl shadow-xs flex flex-col justify-between">
+                  <div className="bg-white border border-[#c3c6d7]/30 p-5 sm:p-6 rounded-2xl shadow-xs flex flex-col justify-between">
                     <div>
-                      <span className="text-[11px] font-bold text-[#737686] uppercase">Total Placas</span>
-                      <p className="text-2xl font-black text-[#0b1c30] tracking-tight mt-2.5">
+                      <span className="text-xs font-bold text-[#737686] uppercase">Total Placas</span>
+                      <p className="text-3xl sm:text-4xl font-black text-[#0b1c30] tracking-tight mt-3">
                         {metrics.totalPlacas}
                       </p>
                     </div>
-                    <p className="text-[9px] text-[#737686] mt-3 font-semibold uppercase tracking-wider">
+                    <p className="text-[10px] text-[#737686] mt-4 font-bold uppercase tracking-wider">
                       Veículos únicos em rota
                     </p>
                   </div>
 
                   {/* KPI: Placas Sem Faturamento */}
                   <SemFaturamentoTooltip plates={platesSemFaturamento} percent={pctSemFaturamento}>
-                    <div className="bg-white border border-[#c3c6d7]/30 p-4 rounded-xl shadow-xs flex flex-col justify-between border-l-4 border-l-[#ab0b1c]/70 hover:border-[#ab0b1c] transition-colors h-full select-none">
+                    <div className="bg-white border border-[#c3c6d7]/30 p-5 sm:p-6 rounded-2xl shadow-xs flex flex-col justify-between border-l-4 border-l-[#ab0b1c]/70 hover:border-[#ab0b1c] transition-colors h-full select-none">
                       <div>
-                        <span className="text-[11px] font-bold text-[#ab0b1c] uppercase flex items-center gap-1">
+                        <span className="text-xs font-bold text-[#ab0b1c] uppercase flex items-center gap-1">
                           <span className="w-1.5 h-1.5 rounded-full bg-[#ab0b1c]" /> Sem Faturamento
                         </span>
-                        <p className="text-2xl font-black text-[#ab0b1c] tracking-tight mt-2.5">
+                        <p className="text-3xl sm:text-4xl font-black text-[#ab0b1c] tracking-tight mt-3">
                           {platesSemFaturamento.length}
-                          <span className="text-xs font-semibold text-slate-500 ml-1.5">
+                          <span className="text-sm font-semibold text-slate-500 ml-1.5">
                             ({pctSemFaturamento}%)
                           </span>
                         </p>
                       </div>
-                      <p className="text-[9px] text-[#737686] mt-3 font-semibold uppercase tracking-wider flex items-center justify-between">
+                      <p className="text-[10px] text-[#737686] mt-4 font-bold uppercase tracking-wider flex items-center justify-between">
                         <span>Frota ativa sem receita</span>
-                        <span className="text-[8px] bg-red-50 text-red-600 px-1 py-0.2 rounded font-black border border-red-200">HOVER INFO</span>
+                        <span className="text-[8px] bg-red-55 text-red-600 px-1 py-0.2 rounded font-black border border-red-200">HOVER INFO</span>
                       </p>
                     </div>
                   </SemFaturamentoTooltip>
 
                   {/* KPI: Receita Potencial Não Faturada */}
-                  <div className="bg-white border border-[#c3c6d7]/30 p-4 rounded-xl shadow-xs flex flex-col justify-between border-l-4 border-l-amber-500 hover:border-amber-500 transition-colors h-full select-none">
+                  <div className="bg-white border border-[#c3c6d7]/30 p-5 sm:p-6 rounded-2xl shadow-xs flex flex-col justify-between border-l-4 border-l-amber-500 hover:border-amber-500 transition-colors h-full select-none">
                     <div>
-                      <span className="text-[11px] font-bold text-amber-600 uppercase flex items-center gap-1">
+                      <span className="text-xs font-bold text-amber-600 uppercase flex items-center gap-1">
                         <TrendingDown className="w-3.5 h-3.5 shrink-0" /> Receita Potencial
                       </span>
-                      <p className="text-xl font-black text-[#0b1c30] tracking-tight mt-2.5">
+                      <p className="text-2xl sm:text-3xl font-black text-[#0b1c30] tracking-tight mt-3">
                         R$ {potentialRevenueTotalStats.totalReceitaPotencial.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </p>
-                      <p className="text-[10px] text-slate-500 mt-1.5 font-medium">
+                      <p className="text-[11px] text-slate-500 mt-2 font-medium">
                         {potentialRevenueTotalStats.totalPlacasSemFaturamento} {potentialRevenueTotalStats.totalPlacasSemFaturamento === 1 ? 'placa' : 'placas'} sem receita
                       </p>
                     </div>
-                    <p className="text-[9px] text-[#737686] mt-3 font-semibold uppercase tracking-wider">
+                    <p className="text-[10px] text-[#737686] mt-4 font-bold uppercase tracking-wider">
                       Baseado na média de faturamento das placas ativas
                     </p>
                   </div>
 
                   {/* KPI 6: Dentro da Meta */}
-                  <div className="bg-white border border-[#c3c6d7]/30 p-4 rounded-xl shadow-xs flex flex-col justify-between border-l-4 border-l-secondary">
+                  <div className="bg-white border border-[#c3c6d7]/30 p-5 sm:p-6 rounded-2xl shadow-xs flex flex-col justify-between border-l-4 border-l-secondary">
                     <div>
-                      <span className="text-[11px] font-bold text-[#00714d] uppercase flex items-center gap-1">
+                      <span className="text-xs font-bold text-[#00714d] uppercase flex items-center gap-1">
                         <span className="w-1.5 h-1.5 rounded-full bg-secondary" /> Dentro Meta
                       </span>
-                      <p className="text-2xl font-black text-secondary tracking-tight mt-2.5">
+                      <p className="text-3xl sm:text-4xl font-black text-secondary tracking-tight mt-3">
                         {metrics.dentroMetaCount}
                       </p>
                     </div>
-                    <p className="text-[9px] text-[#737686] mt-3 font-semibold uppercase tracking-wider">
+                    <p className="text-[10px] text-[#737686] mt-4 font-bold uppercase tracking-wider">
                       ≥ 4 viagens por veículo/mês
                     </p>
                   </div>
 
                   {/* KPI 7: Fora da Meta */}
-                  <div className="bg-white border border-[#c3c6d7]/30 p-4 rounded-xl shadow-xs flex flex-col justify-between border-l-4 border-l-error">
+                  <div className="bg-white border border-[#c3c6d7]/30 p-5 sm:p-6 rounded-2xl shadow-xs flex flex-col justify-between border-l-4 border-l-error">
                     <div>
-                      <span className="text-[11px] font-bold text-error uppercase flex items-center gap-1">
+                      <span className="text-xs font-bold text-error uppercase flex items-center gap-1">
                         <span className="w-1.5 h-1.5 rounded-full bg-error" /> Fora Meta
                       </span>
-                      <p className="text-2xl font-black text-error tracking-tight mt-2.5">
+                      <p className="text-3xl sm:text-4xl font-black text-error tracking-tight mt-3">
                         {metrics.foraMetaCount}
                       </p>
                     </div>
-                    <p className="text-[9px] text-[#737686] mt-3 font-semibold uppercase tracking-wider">
+                    <p className="text-[10px] text-[#737686] mt-4 font-bold uppercase tracking-wider">
                       &lt; 4 viagens por veículo/mês
                     </p>
                   </div>
@@ -4120,7 +4118,7 @@ export default function Home() {
                   </div>
 
                   {/* SEVEN PILL KPI GRID */}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-7 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
                     {/* KPI 1: QUANTIDADE DE VIAGENS GERAL */}
                     <div className="bg-white border border-[#c3c6d7]/30 rounded-2xl p-4.5 xl:p-5 flex items-center gap-3.5 shadow-xs transition-all duration-300 ease-in-out hover:scale-[1.03] hover:-translate-y-1 hover:shadow-lg hover:border-[#004ac6]/40 cursor-pointer">
                       <div className="w-12 h-12 rounded-full bg-blue-50 flex items-center justify-center shrink-0 border border-blue-100">
@@ -7012,7 +7010,7 @@ export default function Home() {
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -15 }}
                 transition={{ duration: 0.35, ease: "easeOut" }}
-                className="space-y-6 max-w-4xl mx-auto font-sans"
+                className="space-y-6 max-w-full font-sans"
               >
                 {/* Header Section */}
                 <header className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 animate-fade-in">
