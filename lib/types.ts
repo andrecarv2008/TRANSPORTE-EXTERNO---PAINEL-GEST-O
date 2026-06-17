@@ -29,6 +29,7 @@ export interface Viagem {
   ganhoPerdaRS?: number;
   statusMeta?: string;
   despesaOficina?: number;
+  statusFaturamento?: 'FATUROU' | 'SEM FATURAMENTO';
 }
 
 export interface ExecutiveMetrics {
@@ -41,6 +42,7 @@ export interface ExecutiveMetrics {
   foraMetaCount: number;
   kmRodadoTotal: number;
   despesaOficinaTotal: number;
+  placasNaoFaturadasCount?: number;
 }
 
 export interface PlacaMetrics {
@@ -58,6 +60,7 @@ export interface PlacaMetrics {
   mes?: string;
   ano?: string | number;
   ultimaRota?: string;
+  statusFaturamento?: 'FATUROU' | 'SEM FATURAMENTO';
 }
 
 export interface MotoristaMetrics {

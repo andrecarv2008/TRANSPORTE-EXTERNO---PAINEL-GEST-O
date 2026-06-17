@@ -45,7 +45,8 @@ import {
   computePlacaMetrics,
   computeMotoristaMetrics,
   computeRouteMetrics,
-  getDriverAvatar
+  getDriverAvatar,
+  isSemFaturamento
 } from '@/lib/data';
 import ImportModal from '@/components/ImportModal';
 import MultiSelectDropdown from '@/components/MultiSelectDropdown';
@@ -146,11 +147,21 @@ const PlateTooltip = ({ plateData, children }: { plateData: PlacaMetrics; childr
       <div className="flex justify-between items-center border-b border-white/10 pb-2 mb-2">
         <span className="text-xs font-black tracking-wider bg-[#004ac6] px-2 py-0.5 rounded text-white font-mono">{plateData.placa}</span>
         <span className={`text-[9px] font-black px-2 py-0.5 rounded-full flex items-center gap-1 ${
+          plateData.statusFaturamento === 'SEM FATURAMENTO' ? 'bg-rose-500/25 text-rose-300 border border-rose-500/30' :
           plateData.statusMeta === 'Dentro da Meta' ? 'bg-[#6cf8bb]/15 text-[#6cf8bb]' : 'bg-red-500/15 text-red-300'
         }`}>
-          {plateData.statusMeta === 'Dentro da Meta' ? '🟢 DENTRO DA META' : '🔴 FORA DA META'}
+          {plateData.statusFaturamento === 'SEM FATURAMENTO' ? '🛑 SEM FATURAMENTO' :
+           plateData.statusMeta === 'Dentro da Meta' ? '🟢 DENTRO DA META' : '🔴 FORA DA META'}
         </span>
       </div>
+      
+      {plateData.statusFaturamento === 'SEM FATURAMENTO' && (
+        <div className="mb-3 text-[10px] text-rose-200 bg-rose-500/10 px-2 py-1.5 rounded border border-rose-500/20 flex items-center gap-1.5 leading-normal font-extrabold uppercase tracking-wide">
+          <span className="inline-block w-2 h-2 rounded-full bg-rose-500 shrink-0" />
+          <span>Veículo sem faturamento no período selecionado</span>
+        </div>
+      )}
+
       <div className="space-y-1.5 text-[11px] font-bold">
         <div className="flex justify-between gap-4">
           <span className="text-slate-400">Supervisor:</span>
@@ -310,6 +321,60 @@ const DespesaCardTooltip = ({ stats, children }: { stats: any; children: React.R
   );
 };
 
+const SemFaturamentoTooltip = ({ 
+  plates, 
+  percent, 
+  children 
+}: { 
+  plates: string[]; 
+  percent: string; 
+  children: React.ReactNode 
+}) => {
+  return (
+    <div className="relative group cursor-help w-full">
+      {children}
+      <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-3.5 w-[325px] bg-[#0b1c30]/95 backdrop-blur-md text-white rounded-xl p-4 shadow-2xl border border-white/10 opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-all duration-200 scale-95 group-hover:scale-100 z-50 text-left font-sans normal-case select-none">
+        <div className="flex justify-between items-center border-b border-white/10 pb-2 mb-2">
+          <span className="text-[10px] font-black tracking-wider bg-[#ab0b1c] px-2 py-0.5 rounded text-white font-mono uppercase">Frota sem Faturamento</span>
+          <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-[#ab0b1c]/20 text-[#ffdad6]">
+            {percent}% DA FROTA
+          </span>
+        </div>
+        <div className="space-y-2 text-[11px] font-bold">
+          <div className="flex justify-between text-slate-300">
+            <span>Frota Total Sem Faturamento:</span>
+            <span className="text-white font-black">{plates.length} veículos</span>
+          </div>
+          
+          <div className="text-[10px] text-slate-400 font-semibold mb-1 uppercase tracking-wider">
+            Lista de Placas Ativas:
+          </div>
+          
+          {plates.length === 0 ? (
+            <div className="text-slate-500 italic text-center py-2">
+              Nenhuma placa encontrada
+            </div>
+          ) : (
+            <div className="max-h-[140px] overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-slate-700">
+              <div className="grid grid-cols-3 gap-1.5 pt-0.5">
+                {plates.map((plate, i) => (
+                  <span 
+                    key={i} 
+                    className="bg-white/10 hover:bg-white/20 text-white rounded text-center py-1 px-1.5 font-mono text-[10px] font-black transition-colors"
+                  >
+                    {plate}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+        <div className="absolute top-full left-1/2 -translate-x-1/2 border-[6px] border-transparent border-t-[#0b1c30]/95" />
+      </div>
+    </div>
+  );
+};
+
 const mapMes = (mes?: string): string => {
   const m = String(mes || 'Maio').toLowerCase();
   if (m.includes('jan')) return '01';
@@ -374,9 +439,10 @@ const DriverDetailModal = ({ driverName, activeViagens, onClose, triggerToast }:
       };
     }
 
-    const tripsCount = driverViagens.length;
-    const uniqueRoutes = new Set(driverViagens.map(v => v.rota)).size;
-    const totalKm = driverViagens.reduce((sum, v) => sum + (v.kmRodado || 0), 0);
+    const activeDriverViagens = driverViagens.filter(v => !isSemFaturamento(v));
+    const tripsCount = activeDriverViagens.length;
+    const uniqueRoutes = new Set(activeDriverViagens.map(v => v.rota)).size;
+    const totalKm = activeDriverViagens.reduce((sum, v) => sum + (v.kmRodado || 0), 0);
     const faturamentoBruto = driverViagens.reduce((sum, v) => sum + (v.valorCarga || 0), 0);
     const despesaOficina = driverViagens.reduce((sum, v) => sum + (v.despesaOficina || 0), 0);
     const faturamentoLiquido = faturamentoBruto - despesaOficina;
@@ -404,7 +470,9 @@ const DriverDetailModal = ({ driverName, activeViagens, onClose, triggerToast }:
       if (!groups[v.rota]) {
         groups[v.rota] = { rota: v.rota, viagens: 0, faturamento: 0, km: 0 };
       }
-      groups[v.rota].viagens += 1;
+      if (!isSemFaturamento(v)) {
+        groups[v.rota].viagens += 1;
+      }
       groups[v.rota].faturamento += v.valorCarga || 0;
       groups[v.rota].km += v.kmRodado || 0;
     });
@@ -417,7 +485,9 @@ const DriverDetailModal = ({ driverName, activeViagens, onClose, triggerToast }:
       if (!groups[v.rota]) {
         groups[v.rota] = { rota: v.rota, trips: 0, faturamento: 0, km: 0, viagens: [] };
       }
-      groups[v.rota].trips += 1;
+      if (!isSemFaturamento(v)) {
+        groups[v.rota].trips += 1;
+      }
       groups[v.rota].faturamento += v.valorCarga || 0;
       groups[v.rota].km += v.kmRodado || 0;
       groups[v.rota].viagens.push(v);
@@ -965,9 +1035,27 @@ const PlacasDetailModal = ({ categoryLabel, rankings, onClose }: PlacasDetailMod
                           </span>
                         </td>
                         <td className="px-4 py-3">
-                          <span className="px-2 py-0.5 rounded text-[10px] font-mono font-black tracking-wider bg-blue-50 text-blue-700 border border-blue-200 whitespace-nowrap">
-                            {r.placa} {r.mes && `(${r.mes.slice(0, 3)})`}
-                          </span>
+                          <div className="flex flex-col gap-1 items-start">
+                            <span 
+                              title={r.statusFaturamento === 'SEM FATURAMENTO' ? 'Veículo sem faturamento no período selecionado' : undefined}
+                              className={`px-2.5 py-1 rounded text-[10px] font-mono font-black tracking-wider border whitespace-nowrap ${
+                                r.statusFaturamento === 'SEM FATURAMENTO'
+                                  ? 'bg-rose-50 text-rose-700 border-rose-250 cursor-help'
+                                  : 'bg-blue-50 text-blue-700 border-blue-200'
+                              }`}
+                            >
+                              {r.placa} {r.mes && `(${r.mes.slice(0, 3)})`}
+                            </span>
+                            {r.statusFaturamento === 'SEM FATURAMENTO' ? (
+                              <span className="inline-block text-[9px] bg-rose-50 text-rose-600 border border-rose-200 rounded px-1 py-0.5 leading-none font-black select-none uppercase tracking-wider">
+                                SEM FATURAMENTO
+                              </span>
+                            ) : (
+                              <span className="inline-block text-[9px] bg-emerald-50 text-emerald-700 border border-emerald-200 rounded px-1 py-0.5 leading-none font-black select-none uppercase tracking-wider">
+                                FATUROU
+                              </span>
+                            )}
+                          </div>
                         </td>
                         <td className="px-4 py-3 font-bold text-slate-700 uppercase truncate max-w-[320px]">
                           {r.motorista || 'Sem Motorista'}
@@ -1005,6 +1093,395 @@ const PlacasDetailModal = ({ categoryLabel, rankings, onClose }: PlacasDetailMod
           <button
             onClick={onClose}
             className="px-4 py-1.5 bg-[#0b1c30] text-white text-xs font-black rounded-lg hover:bg-opacity-90 transition-colors uppercase tracking-wider cursor-pointer"
+          >
+            Fechar
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+interface PotentialRevenueDetailModalProps {
+  mesSelected: string | null;
+  preFilteredViagens: Viagem[];
+  onClose: () => void;
+}
+
+const PotentialRevenueDetailModal = ({ mesSelected, preFilteredViagens, onClose }: PotentialRevenueDetailModalProps) => {
+  const [search, setSearch] = React.useState('');
+  const [sortField, setSortField] = React.useState<string>('placa');
+  const [sortDirection, setSortDirection] = React.useState<'asc' | 'desc'>('asc');
+
+  if (!mesSelected) return null;
+
+  // Filter voyages to the chosen month
+  const voyagesInMonth = preFilteredViagens.filter(v => (v.mes || 'Maio') === mesSelected);
+
+  // Group by plate to find which ones did NOT bill
+  const plateMap: Record<string, { faturamento: number; hasBilling: boolean; viagens: Viagem[] }> = {};
+  
+  voyagesInMonth.forEach(v => {
+    const p = String(v.placa || '').trim().toUpperCase();
+    if (!p) return;
+    if (!plateMap[p]) {
+      plateMap[p] = { faturamento: 0, hasBilling: false, viagens: [] };
+    }
+    plateMap[p].viagens.push(v);
+    plateMap[p].faturamento += v.valorCarga || 0;
+    if (!isSemFaturamento(v)) {
+      plateMap[p].hasBilling = true;
+    }
+  });
+
+  // Calculate unbilled plates
+  const unbilledPlatesRaw = Object.keys(plateMap)
+    .filter(p => !plateMap[p].hasBilling)
+    .map(p => {
+      const plateVoyages = plateMap[p].viagens;
+      
+      const branches = Array.from(new Set(plateVoyages.map(v => v.filial || 'Filial São Luís').filter(Boolean)));
+      const drivers = Array.from(new Set(plateVoyages.map(v => v.motorista || 'Sem Motorista').filter(Boolean)));
+      
+      // Dynamic supervisor resolver that looks across ALL voyages in preFilteredViagens
+      let resolvedSupervisor = '';
+      
+      const isRealSupervisorName = (name: string) => {
+        if (!name) return false;
+        const upper = name.trim().toUpperCase();
+        return (
+          upper !== '' &&
+          upper !== 'N/D' &&
+          upper !== 'SEM SUPERVISOR' &&
+          upper !== 'UNDEFINED' &&
+          upper !== 'NULL' &&
+          upper !== 'LEONAN' &&
+          upper !== 'VAZIO'
+        );
+      };
+
+      // 1. Try to find any other voyage in preFilteredViagens for the exact same plate with a real supervisor name
+      const samePlateVoyages = preFilteredViagens.filter(
+        v => String(v.placa || '').trim().toUpperCase() === p
+      );
+      
+      const realSupervisorsOfPlate = samePlateVoyages
+        .map(v => String(v.supervisao || '').trim())
+        .filter(isRealSupervisorName);
+
+      if (realSupervisorsOfPlate.length > 0) {
+        resolvedSupervisor = realSupervisorsOfPlate[0];
+      } else {
+        // 2. Try to find a real supervisor by filial across all voyages
+        const filialName = branches[0] || '';
+        if (filialName) {
+          const sameFilialVoyages = preFilteredViagens.filter(
+            v => String(v.filial || '').trim().toUpperCase() === filialName.toUpperCase()
+          );
+          const realSupervisorsOfFilial = sameFilialVoyages
+            .map(v => String(v.supervisao || '').trim())
+            .filter(isRealSupervisorName);
+          
+          if (realSupervisorsOfFilial.length > 0) {
+            resolvedSupervisor = realSupervisorsOfFilial[0];
+          }
+        }
+      }
+
+      // 3. Fallback: if we still don't have supervisor, check if 'LEONAN' is verified as a real supervisor for this plate
+      if (!resolvedSupervisor) {
+        const hasBilledLeonan = samePlateVoyages.some(
+          v => !isSemFaturamento(v) && String(v.supervisao || '').trim().toUpperCase() === 'LEONAN'
+        );
+        if (hasBilledLeonan) {
+          resolvedSupervisor = 'LEONAN';
+        } else {
+          const filialName = branches[0] || '';
+          const hasBilledLeonanForFilial = filialName && preFilteredViagens.some(
+            v => String(v.filial || '').trim().toUpperCase() === filialName.toUpperCase() &&
+                 !isSemFaturamento(v) && 
+                 String(v.supervisao || '').trim().toUpperCase() === 'LEONAN'
+          );
+          if (hasBilledLeonanForFilial) {
+            resolvedSupervisor = 'LEONAN';
+          }
+        }
+      }
+
+      // 4. Final resolve: fallback to any non-empty supervisao in this plate's voyages, or 'Vazio'
+      if (!resolvedSupervisor) {
+        const rawSups = plateVoyages.map(v => String(v.supervisao || '').trim()).filter(Boolean);
+        const filteredRawSups = rawSups.filter(s => {
+          const u = s.toUpperCase();
+          return u !== 'N/D' && u !== 'SEM SUPERVISOR' && u !== 'UNDEFINED' && u !== 'NULL' && u !== 'LEONAN';
+        });
+        if (filteredRawSups.length > 0) {
+          resolvedSupervisor = filteredRawSups[0];
+        } else {
+          resolvedSupervisor = 'Vazio';
+        }
+      }
+
+      const routes = Array.from(new Set(plateVoyages.map(v => v.rota || 'N/D').filter(Boolean)));
+      const shipTypes = Array.from(new Set(plateVoyages.map(v => v.tipoVeiculo || 'N/D').filter(Boolean)));
+      const kmTotal = plateVoyages.reduce((sum, v) => sum + (v.kmRodado || 0), 0);
+      const billedVoyagesCount = plateVoyages.filter(v => !isSemFaturamento(v)).length;
+      
+      return {
+        placa: p,
+        filial: branches.join(', ') || 'Filial São Luís',
+        motorista: drivers.join(', ') || 'Sem Motorista',
+        supervisor: resolvedSupervisor,
+        rotas: routes.join(', ') || 'N/D',
+        tipoVeiculo: shipTypes.join(', ') || 'N/D',
+        kmRodadoTotal: kmTotal,
+        viagensCount: billedVoyagesCount,
+      };
+    });
+
+  // Calculate stats for this month
+  const totalUnbilledPlatesCount = unbilledPlatesRaw.length;
+  // Faturamento médio das placas que FATURARAM neste mês (to calculate potential revenue lost)
+  const billedPlates = Object.keys(plateMap).filter(p => plateMap[p].hasBilling);
+  const faturamentoTotalBilled = voyagesInMonth.reduce((sum, v) => sum + (isSemFaturamento(v) ? 0 : (v.valorCarga || 0)), 0);
+  const faturamentoMedio = billedPlates.length > 0 ? (faturamentoTotalBilled / billedPlates.length) : 0;
+  const totalReceitaPotencialFaltante = faturamentoMedio * totalUnbilledPlatesCount;
+
+  // Search filter
+  const filteredPlates = unbilledPlatesRaw.filter(p => {
+    const term = search.toLowerCase();
+    return (
+      p.placa.toLowerCase().includes(term) ||
+      p.filial.toLowerCase().includes(term) ||
+      p.motorista.toLowerCase().includes(term) ||
+      p.supervisor.toLowerCase().includes(term) ||
+      p.rotas.toLowerCase().includes(term) ||
+      p.tipoVeiculo.toLowerCase().includes(term)
+    );
+  });
+
+  // Sorting
+  const sortedPlates = [...filteredPlates].sort((a: any, b: any) => {
+    let valA = a[sortField];
+    let valB = b[sortField];
+
+    if (typeof valA === 'string') {
+      valA = valA.toLowerCase();
+      valB = valB.toLowerCase();
+      if (valA < valB) return sortDirection === 'asc' ? -1 : 1;
+      if (valA > valB) return sortDirection === 'asc' ? 1 : -1;
+      return 0;
+    } else {
+      // numeric comparison
+      return sortDirection === 'asc' ? valA - valB : valB - valA;
+    }
+  });
+
+  const handleSort = (field: string) => {
+    if (sortField === field) {
+      setSortDirection(prev => prev === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortField(field);
+      setSortDirection('asc');
+    }
+  };
+
+  const getSortIndicator = (field: string) => {
+    if (sortField !== field) return <span className="ml-1 opacity-20">↕</span>;
+    return sortDirection === 'asc' ? <span className="ml-1 text-blue-500">↑</span> : <span className="ml-1 text-blue-500">↓</span>;
+  };
+
+  return (
+    <div 
+      className="fixed inset-0 bg-[#0b1c30]/65 backdrop-blur-xs z-55 flex items-center justify-center p-4 md:p-6"
+      onClick={onClose}
+    >
+      <div 
+        className="bg-white w-full max-w-6xl xl:max-w-7xl rounded-2xl shadow-2xl border border-[#c3c6d7]/30 flex flex-col max-h-[90vh] overflow-hidden"
+        onClick={e => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="bg-[#0b1c30] px-6 py-4 flex items-center justify-between border-b border-white/10 shrink-0">
+          <div>
+            <p className="text-[10px] font-black text-amber-400 uppercase tracking-widest leading-none">Oportunidade e Receita Não Realizada</p>
+            <h2 className="text-lg font-black text-white mt-1 uppercase leading-tight">Placas sem Faturamento em {mesSelected}</h2>
+            <p className="text-xs text-slate-350 mt-1 font-medium font-sans">
+              Consulte aqui o detalhamento de veículos ociosos no mês ou filtre termos na busca inteligente.
+            </p>
+          </div>
+          <button 
+            onClick={onClose}
+            className="p-1.5 rounded-lg text-white/70 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+          >
+            <X className="w-6 h-6" />
+          </button>
+        </div>
+
+        {/* Dynamic Monthly KPI Summaries */}
+        <div className="bg-slate-50 border-b border-slate-100 p-4 shrink-0 grid grid-cols-1 sm:grid-cols-3 gap-4 font-sans text-xs">
+          <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-xs flex flex-col justify-between">
+            <div>
+              <span className="text-[10px] text-[#737686] font-extrabold uppercase tracking-wider block">Veículos Não Faturados ({mesSelected})</span>
+              <span className="text-2xl font-black text-amber-600 block mt-1">
+                {totalUnbilledPlatesCount}
+              </span>
+            </div>
+            <span className="text-[10px] text-gray-400 mt-2 block">
+              Placas sem viagens produtivas faturadas no mês.
+            </span>
+          </div>
+
+          <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-xs flex flex-col justify-between">
+            <div>
+              <span className="text-[10px] text-[#737686] font-extrabold uppercase tracking-wider block">Faturamento Médio por Placa Ativa</span>
+              <span className="text-2xl font-black text-blue-600 block mt-1">
+                R$ {faturamentoMedio.toLocaleString('pt-BR', { maximumFractionDigits: 2 })}
+              </span>
+            </div>
+            <span className="text-[10px] text-gray-400 mt-2 block">
+              Ticket médio gerado por veículos produtivos faturantes.
+            </span>
+          </div>
+
+          <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-xs flex flex-col justify-between bg-amber-50/15 border-amber-250/30">
+            <div>
+              <span className="text-[10px] text-amber-700 font-extrabold uppercase tracking-wider block">Receita Potencial Não Faturada</span>
+              <span className="text-2xl font-black text-rose-600 block mt-1">
+                R$ {totalReceitaPotencialFaltante.toLocaleString('pt-BR', { maximumFractionDigits: 2 })}
+              </span>
+            </div>
+            <span className="text-[10px] text-amber-600 font-bold mt-2 block">
+              Perda potencial calculada para as {totalUnbilledPlatesCount} placas inativas.
+            </span>
+          </div>
+        </div>
+
+        {/* Filter and Search controls */}
+        <div className="px-6 py-3.5 bg-white border-b border-slate-100 flex flex-col sm:flex-row items-center gap-3 justify-between shrink-0">
+          <div className="relative w-full sm:max-w-md">
+            <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
+            <input
+              type="text"
+              placeholder="Buscar por placa, filial, motorista, supervisor, rota ou veículo..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="pl-9 pr-4 py-1.5 w-full bg-slate-50 border border-slate-300 rounded-lg text-xs font-medium focus:outline-hidden focus:ring-1 focus:ring-blue-500 focus:border-blue-500 transition-all font-sans"
+            />
+            {search && (
+              <button 
+                onClick={() => setSearch('')}
+                className="absolute right-3 top-2 text-slate-400 hover:text-slate-600 text-xs"
+              >
+                ✕
+              </button>
+            )}
+          </div>
+          <div className="text-[11px] text-[#737686] font-bold uppercase tracking-wider flex items-center gap-1.5">
+            Exibindo <span className="text-slate-900 font-extrabold font-mono">{sortedPlates.length}</span> de <span className="text-slate-900 font-extrabold font-mono">{totalUnbilledPlatesCount}</span> placas sem faturamento
+          </div>
+        </div>
+
+        {/* Table Body Content */}
+        <div className="flex-1 overflow-y-auto p-6 min-h-0 bg-slate-50">
+          {sortedPlates.length === 0 ? (
+            <div className="text-center py-16 bg-white border border-slate-200 rounded-xl shadow-xs">
+              <AlertTriangle className="mx-auto h-12 w-12 text-slate-400 mb-2" />
+              <p className="text-sm font-black text-slate-700 uppercase font-sans">Nenhum veículo encontrado</p>
+              <p className="text-xs text-slate-500 font-medium font-sans mt-1">Refine seus termos de busca para encontrar registros específicos.</p>
+            </div>
+          ) : (
+            <div className="overflow-hidden border border-slate-200 rounded-xl bg-white shadow-md">
+              <table className="w-full text-left text-sm font-sans">
+                <thead className="bg-slate-100/90 text-slate-600 text-[11px] md:text-xs uppercase font-black tracking-wider border-b border-slate-200">
+                  <tr>
+                    <th className="px-5 py-3.5 cursor-pointer select-none text-center w-36 bg-slate-50/50" onClick={() => handleSort('placa')}>
+                      Placa {getSortIndicator('placa')}
+                    </th>
+                    <th className="px-5 py-3.5 cursor-pointer select-none" onClick={() => handleSort('filial')}>
+                      Filial / Unidade {getSortIndicator('filial')}
+                    </th>
+                    <th className="px-5 py-3.5 cursor-pointer select-none" onClick={() => handleSort('motorista')}>
+                      Último Motorista {getSortIndicator('motorista')}
+                    </th>
+                    <th className="px-5 py-3.5 cursor-pointer select-none" onClick={() => handleSort('supervisor')}>
+                      Supervisor Responsável {getSortIndicator('supervisor')}
+                    </th>
+                    <th className="px-5 py-3.5 cursor-pointer select-none text-center" onClick={() => handleSort('viagensCount')}>
+                      Viagens {getSortIndicator('viagensCount')}
+                    </th>
+                    <th className="px-5 py-3.5 cursor-pointer select-none text-right" onClick={() => handleSort('kmRodadoTotal')}>
+                      KM Percorrido {getSortIndicator('kmRodadoTotal')}
+                    </th>
+                    <th className="px-5 py-3.5">Rotas Recorrentes no Mês</th>
+                    <th className="px-5 py-3.5">Tipo de Veículo</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-150">
+                  {sortedPlates.map((item, itemIdx) => {
+                    const cleanPlaca = item.placa.trim().toUpperCase().replace('-', '');
+                    const displayPlaca = cleanPlaca.length === 7 
+                      ? `${cleanPlaca.slice(0, 3)}-${cleanPlaca.slice(3)}` 
+                      : item.placa.trim().toUpperCase();
+
+                    return (
+                      <tr key={`${item.placa}-${itemIdx}`} className="hover:bg-blue-50/10 transition-colors">
+                        <td className="px-4 py-3.5 text-center bg-slate-50/30 whitespace-nowrap align-middle">
+                          {/* Authentic Mercosul Styled Plate Badge */}
+                          <div className="inline-flex flex-col w-28 h-9 border-2 border-slate-400 rounded-md bg-white shadow-xs select-none shrink-0 overflow-hidden">
+                            {/* Blue Upper Strip with BRASIL & Mini Icon */}
+                            <div className="bg-[#0051a8] text-white text-[7px] font-sans font-black px-1.5 h-3.5 flex justify-between items-center tracking-wider uppercase select-none leading-none">
+                              <span className="flex items-center gap-0.5">
+                                <span className="inline-block w-1.5 h-1 bg-green-500 rounded-2xs"></span>
+                                BRASIL
+                              </span>
+                              <span className="text-[5.5px] opacity-80">MERCOSUL</span>
+                            </div>
+                            {/* Central Alphanumeric Area */}
+                            <div className="flex-1 flex items-center justify-center font-mono text-[13px] font-[900] text-slate-900 tracking-wide leading-none bg-[#f8fafc]">
+                              {displayPlaca}
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-5 py-3.5 text-xs md:text-[13px] font-bold text-slate-800 uppercase leading-snug">
+                          {item.filial}
+                        </td>
+                        <td className="px-5 py-3.5 text-xs md:text-[13px] font-semibold text-slate-700 uppercase truncate max-w-[220px]" title={item.motorista}>
+                          {item.motorista}
+                        </td>
+                        <td className="px-5 py-3.5 text-xs md:text-[13px] font-bold text-slate-600 uppercase truncate max-w-[180px]" title={item.supervisor}>
+                          {item.supervisor}
+                        </td>
+                        <td className="px-5 py-3.5 text-center text-xs md:text-[13px] font-black text-slate-900">
+                          {item.viagensCount}
+                        </td>
+                        <td className="px-5 py-3.5 text-right text-xs md:text-[13px] font-extrabold text-slate-800 font-mono">
+                          {item.kmRodadoTotal.toLocaleString('pt-BR')} km
+                        </td>
+                        <td className="px-5 py-3.5 text-xs md:text-[13px] text-slate-600 font-medium truncate max-w-[240px]" title={item.rotas}>
+                          {item.rotas}
+                        </td>
+                        <td className="px-5 py-3.5 text-xs md:text-[13px] text-slate-500 truncate max-w-[160px] align-middle" title={item.tipoVeiculo}>
+                          <span className="px-2.5 py-1 bg-slate-100 text-slate-700 text-[10px] md:text-[11px] font-extrabold rounded-md uppercase border border-slate-200">
+                            {item.tipoVeiculo}
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+        
+        {/* Footer */}
+        <div className="bg-slate-50 px-6 py-4 border-t border-slate-100 flex items-center justify-between shrink-0">
+          <div className="text-[11px] text-[#737686] font-bold uppercase tracking-wider">
+            Unidade Transp. Externo - Grupo Mateus
+          </div>
+          <button
+            onClick={onClose}
+            className="px-5 py-2 bg-[#0b1c30] text-white text-xs font-black rounded-lg hover:bg-opacity-90 transition-colors uppercase tracking-wider cursor-pointer shadow-sm hover:shadow-md"
           >
             Fechar
           </button>
@@ -1052,6 +1529,9 @@ export default function Home() {
   const [selectedMeses, setSelectedMeses] = React.useState<string[]>([]);
   const [selectedSupervisores, setSelectedSupervisores] = React.useState<string[]>([]);
   const [statusMetaFilter, setStatusMetaFilter] = React.useState<'ALL' | 'DENTRO' | 'FORA'>('ALL');
+  const [billingFilter, setBillingFilter] = React.useState<'ALL' | 'FATURADO' | 'NAO_FATURADO'>('ALL');
+  const [potentialChartHoveredIndex, setPotentialChartHoveredIndex] = React.useState<number | null>(null);
+  const [selectedPotentialMonth, setSelectedPotentialMonth] = React.useState<string | null>(null);
   
   const [toastMessage, setToastMessage] = React.useState<string | null>(null);
   const [selectedDriverName, setSelectedDriverName] = React.useState<string | null>(null);
@@ -1200,6 +1680,9 @@ export default function Home() {
         const savedStatusMeta = localStorage.getItem('filters_status_meta');
         if (savedStatusMeta) setStatusMetaFilter(savedStatusMeta as any);
 
+        const savedBilling = localStorage.getItem('filters_billing');
+        if (savedBilling) setBillingFilter(savedBilling as any);
+
         const savedTab = localStorage.getItem('active_tab');
         if (savedTab) {
           setActiveTab(savedTab as any);
@@ -1265,6 +1748,11 @@ export default function Home() {
   const updateStatusMetaFilter = (value: 'ALL' | 'DENTRO' | 'FORA') => {
     setStatusMetaFilter(value);
     localStorage.setItem('filters_status_meta', value);
+  };
+
+  const updateBillingFilter = (value: 'ALL' | 'FATURADO' | 'NAO_FATURADO') => {
+    setBillingFilter(value);
+    localStorage.setItem('filters_billing', value);
   };
 
   const updateActiveTab = (tab: any) => {
@@ -1450,7 +1938,7 @@ export default function Home() {
   }, [viagens]);
 
   // Re-compute standard metrics based on currently parsed list responding to Filial, Ano, Mês, Supervisor, Meta Status and Search text
-  const activeViagens = React.useMemo(() => {
+  const preFilteredViagens = React.useMemo(() => {
     let list = viagens;
 
     // Filter by Filial (Multi-select)
@@ -1519,6 +2007,16 @@ export default function Home() {
     return list;
   }, [viagens, selectedFiliais, selectedAnos, selectedMeses, selectedSupervisores, statusMetaFilter, searchQuery, searchMotorista, searchPlaca, mesesDrop]);
 
+  // Handle the Faturado / Não Faturado billingFilter
+  const activeViagens = React.useMemo(() => {
+    if (billingFilter === 'FATURADO') {
+      return preFilteredViagens.filter(v => !isSemFaturamento(v));
+    } else if (billingFilter === 'NAO_FATURADO') {
+      return preFilteredViagens.filter(v => isSemFaturamento(v));
+    }
+    return preFilteredViagens;
+  }, [preFilteredViagens, billingFilter]);
+
   const activeMonthsCount = React.useMemo(() => {
     return selectedMeses && selectedMeses.length > 0 
       ? selectedMeses.length 
@@ -1526,6 +2024,59 @@ export default function Home() {
   }, [selectedMeses, mesesDrop]);
 
   // Compute metrics dynamically
+  const preFilteredMetrics = React.useMemo(() => computeExecutiveMetrics(preFilteredViagens), [preFilteredViagens]);
+
+  // Compute total active unique plate-month combinations to serve as fleet-month denominator
+  const totalPlateMonthsCount = React.useMemo(() => {
+    const activeCombos = new Set<string>();
+    preFilteredViagens.forEach(v => {
+      const p = v.placa.trim().toUpperCase();
+      if (!p) return;
+      const m = v.mes || 'Maio';
+      activeCombos.add(`${p} | ${m}`);
+    });
+    return activeCombos.size;
+  }, [preFilteredViagens]);
+
+  const platesSemFaturamento = React.useMemo(() => {
+    // We group preFilteredViagens by plate and month (e.g. v.mes)
+    // to check for billing within that specific month.
+    const plateMonthMap: Record<string, { plate: string; mes: string; hasBilling: boolean }> = {};
+
+    preFilteredViagens.forEach(v => {
+      const p = v.placa.trim().toUpperCase();
+      if (!p) return;
+      const m = v.mes || 'Maio';
+      const key = `${p} | ${m}`;
+
+      if (!plateMonthMap[key]) {
+        plateMonthMap[key] = { plate: p, mes: m, hasBilling: false };
+      }
+
+      if (!isSemFaturamento(v)) {
+        plateMonthMap[key].hasBilling = true;
+      }
+    });
+
+    const list: string[] = [];
+    Object.values(plateMonthMap).forEach(item => {
+      if (!item.hasBilling) {
+        if (selectedMeses && selectedMeses.length === 1) {
+          list.push(item.plate);
+        } else {
+          list.push(`${item.plate} (${item.mes.slice(0, 3)})`);
+        }
+      }
+    });
+
+    return list.sort();
+  }, [preFilteredViagens, selectedMeses]);
+
+  const pctSemFaturamento = React.useMemo(() => {
+    if (totalPlateMonthsCount === 0) return '0.0';
+    return ((platesSemFaturamento.length / totalPlateMonthsCount) * 100).toFixed(1);
+  }, [platesSemFaturamento, totalPlateMonthsCount]);
+
   const metrics = React.useMemo(() => computeExecutiveMetrics(activeViagens), [activeViagens]);
   const rankings = React.useMemo(() => computePlacaMetrics(activeViagens, activeViagens, activeMonthsCount), [activeViagens, activeMonthsCount]);
   const motoristas = React.useMemo(() => computeMotoristaMetrics(activeViagens), [activeViagens]);
@@ -1542,6 +2093,7 @@ export default function Home() {
       motoristas: Record<string, number>;
       viagensCount: number;
       ultimaRota: string;
+      hasBilling: boolean;
     }> = {};
 
     activeViagens.forEach(v => {
@@ -1557,7 +2109,8 @@ export default function Home() {
           supervisores: {},
           motoristas: {},
           viagensCount: 0,
-          ultimaRota: ''
+          ultimaRota: '',
+          hasBilling: false
         };
       }
 
@@ -1565,7 +2118,11 @@ export default function Home() {
       g.faturamento += v.valorCarga || 0;
       g.kmTotal += v.kmRodado || 0;
       g.despesaOficinaTotal += v.despesaOficina || 0;
-      g.viagensCount += 1;
+
+      if (!isSemFaturamento(v)) {
+        g.viagensCount += 1;
+        g.hasBilling = true;
+      }
 
       const sup = v.supervisao || 'Sem Supervisor';
       g.supervisores[sup] = (g.supervisores[sup] || 0) + 1;
@@ -1628,7 +2185,8 @@ export default function Home() {
         supervisor,
         motorista,
         ultimaRota: g.ultimaRota || 'Sem rota programada',
-        targetMeta
+        targetMeta,
+        statusFaturamento: (g.hasBilling ? 'FATUROU' : 'SEM FATURAMENTO') as 'SEM FATURAMENTO' | 'FATUROU'
       };
     });
 
@@ -1773,6 +2331,88 @@ export default function Home() {
     console.log("=============================");
   }, [viagens, activeViagens, selectedMeses, rankings]);
 
+  const potentialRevenueByMonth = React.useMemo(() => {
+    // We want the months sorted in chronological order.
+    const mesesOrdem = [
+      "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
+      "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"
+    ];
+
+    // Find all unique months present in preFilteredViagens
+    const uniqueMonths = Array.from(new Set(preFilteredViagens.map(v => v.mes || 'Maio')))
+      .sort((a, b) => mesesOrdem.indexOf(a) - mesesOrdem.indexOf(b));
+
+    const monthlyData = uniqueMonths.map(mes => {
+      const voyagesInMonth = preFilteredViagens.filter(v => (v.mes || 'Maio') === mes);
+
+      // Group by plate to find which ones billed and which ones did not
+      const plateMap: Record<string, { faturamento: number; hasBilling: boolean }> = {};
+      voyagesInMonth.forEach(v => {
+        const p = v.placa.trim().toUpperCase();
+        if (!p) return;
+        if (!plateMap[p]) {
+          plateMap[p] = { faturamento: 0, hasBilling: false };
+        }
+        plateMap[p].faturamento += v.valorCarga || 0;
+        if (!isSemFaturamento(v)) {
+          plateMap[p].hasBilling = true;
+        }
+      });
+
+      const platesFaturadas = Object.keys(plateMap).filter(p => plateMap[p].hasBilling);
+      const platesSemFaturamentoInfo = Object.keys(plateMap).filter(p => !plateMap[p].hasBilling);
+
+      const countFaturadas = platesFaturadas.length;
+      const countSemFaturamento = platesSemFaturamentoInfo.length;
+
+      const faturamentoTotal = voyagesInMonth.reduce((sum, v) => sum + (v.valorCarga || 0), 0);
+      const faturamentoMedio = countFaturadas > 0 ? (faturamentoTotal / countFaturadas) : 0;
+      const receitaPotencial = faturamentoMedio * countSemFaturamento;
+
+      return {
+        mes,
+        countFaturadas,
+        countSemFaturamento,
+        faturamentoMedio,
+        receitaPotencial,
+        faturamentoTotal
+      };
+    });
+
+    return monthlyData;
+  }, [preFilteredViagens]);
+
+  // Aggregate stats across all active months for the card
+  const potentialRevenueTotalStats = React.useMemo(() => {
+    const totalReceitaPotencial = potentialRevenueByMonth.reduce((sum, item) => sum + item.receitaPotencial, 0);
+    const totalPlacasSemFaturamento = potentialRevenueByMonth.reduce((sum, item) => sum + item.countSemFaturamento, 0);
+
+    const plateMap: Record<string, { faturamento: number; hasBilling: boolean }> = {};
+    preFilteredViagens.forEach(v => {
+      const p = v.placa.trim().toUpperCase();
+      if (!p) return;
+      if (!plateMap[p]) {
+        plateMap[p] = { faturamento: 0, hasBilling: false };
+      }
+      plateMap[p].faturamento += v.valorCarga || 0;
+      if (!isSemFaturamento(v)) {
+        plateMap[p].hasBilling = true;
+      }
+    });
+
+    const platesFaturadas = Object.keys(plateMap).filter(p => plateMap[p].hasBilling);
+    const countFaturadas = platesFaturadas.length;
+
+    const faturamentoTotal = preFilteredViagens.reduce((sum, v) => sum + (v.valorCarga || 0), 0);
+    const faturamentoMedioGeral = countFaturadas > 0 ? (faturamentoTotal / countFaturadas) : 0;
+
+    return {
+      totalReceitaPotencial,
+      totalPlacasSemFaturamento,
+      faturamentoMedioGeral
+    };
+  }, [potentialRevenueByMonth, preFilteredViagens]);
+
   const topRotasMaiorFaturamento = React.useMemo(() => {
     return [...rotas].sort((a, b) => b.totalValue - a.totalValue).slice(0, 5);
   }, [rotas]);
@@ -1792,11 +2432,12 @@ export default function Home() {
   const selectedRouteDetails = React.useMemo(() => {
     if (!selectedRouteName) return null;
     const filtered = activeViagens.filter(v => v.rota === selectedRouteName);
-    const totalTrips = filtered.length;
-    if (totalTrips === 0) return null;
+    const activeTrips = filtered.filter(v => !isSemFaturamento(v));
+    const totalTrips = activeTrips.length;
+    if (filtered.length === 0) return null;
 
     const totalDays = filtered.reduce((sum, v) => sum + (v.qtdDias || 0), 0);
-    const avgDays = parseFloat((totalDays / totalTrips).toFixed(1));
+    const avgDays = totalTrips > 0 ? parseFloat((totalDays / totalTrips).toFixed(1)) : 0;
 
     const uniqueDrivers = Array.from(new Set(filtered.map(v => v.motorista.trim()))).filter(Boolean);
     const uniquePlacas = Array.from(new Set(filtered.map(v => v.placa.trim()))).filter(Boolean);
@@ -1812,7 +2453,9 @@ export default function Home() {
       if (!driverGroups[dName]) {
         driverGroups[dName] = { nome: dName, viagens: 0, faturamento: 0, despesaOficina: 0, faturamentoLiquido: 0 };
       }
-      driverGroups[dName].viagens += 1;
+      if (!isSemFaturamento(v)) {
+        driverGroups[dName].viagens += 1;
+      }
       driverGroups[dName].faturamento += v.valorCarga || 0;
       const itemDespesa = v.despesaOficina || 0;
       driverGroups[dName].despesaOficina += itemDespesa;
@@ -1824,7 +2467,12 @@ export default function Home() {
     const plateGroups: Record<string, number> = {};
     filtered.forEach(v => {
       const p = v.placa.trim();
-      plateGroups[p] = (plateGroups[p] || 0) + 1;
+      if (!plateGroups[p]) {
+        plateGroups[p] = 0;
+      }
+      if (!isSemFaturamento(v)) {
+        plateGroups[p] += 1;
+      }
     });
     const vehiclesList = Object.entries(plateGroups).map(([placa, viagensCount]) => ({
       placa,
@@ -1983,6 +2631,11 @@ export default function Home() {
         v.rota.toLowerCase().includes(q)
       );
     }
+    if (billingFilter === 'FATURADO') {
+      list = list.filter(v => !isSemFaturamento(v));
+    } else if (billingFilter === 'NAO_FATURADO') {
+      list = list.filter(v => isSemFaturamento(v));
+    }
 
     const groups: Record<string, {
       key: string;
@@ -2101,7 +2754,7 @@ export default function Home() {
     });
 
     return computedList;
-  }, [viagens, selectedFiliais, selectedSupervisores, searchQuery]);
+  }, [viagens, selectedFiliais, selectedSupervisores, searchQuery, billingFilter]);
 
   // Effect to select default comparison key when the list loads or updates
   React.useEffect(() => {
@@ -2579,6 +3232,41 @@ export default function Home() {
               </button>
             </div>
 
+            {/* Billing Filter (Faturamento/Faturado) */}
+            <div className="flex bg-[#eff4ff] p-1 rounded-lg border border-[#c3c6d7]/30 items-center">
+              <span className="text-[9px] font-black uppercase text-[#737686] px-1.5 whitespace-nowrap hidden sm:inline border-r border-[#c3c6d7]/30 mr-1.5">Faturamento</span>
+              <button
+                onClick={() => updateBillingFilter('ALL')}
+                className={`px-2 py-1 text-[10px] font-extrabold rounded-md transition-all cursor-pointer ${
+                  billingFilter === 'ALL'
+                    ? 'bg-[#004ac6] text-white shadow-xs font-black'
+                    : 'text-[#434655] hover:text-[#0b1c30]'
+                }`}
+              >
+                Todos
+              </button>
+              <button
+                onClick={() => updateBillingFilter('FATURADO')}
+                className={`px-2 py-1 text-[10px] font-extrabold rounded-md transition-all cursor-pointer ${
+                  billingFilter === 'FATURADO'
+                    ? 'bg-[#00714d] text-white shadow-xs font-black'
+                    : 'text-[#434655] hover:text-[#00714d]'
+                }`}
+              >
+                Faturado
+              </button>
+              <button
+                onClick={() => updateBillingFilter('NAO_FATURADO')}
+                className={`px-2 py-1 text-[10px] font-extrabold rounded-md transition-all cursor-pointer ${
+                  billingFilter === 'NAO_FATURADO'
+                    ? 'bg-[#ab0b1c] text-white shadow-xs font-black'
+                    : 'text-[#434655] hover:text-[#ab0b1c]'
+                }`}
+              >
+                Não Faturado
+              </button>
+            </div>
+
             {/* Clear persistent data */}
             <button
               onClick={() => {
@@ -2677,7 +3365,7 @@ export default function Home() {
 
 
                 {/* KPI metrics row */}
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-9 gap-4">
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-10 gap-3">
                   {/* KPI 1: Faturamento */}
                   <div className="bg-white border border-[#c3c6d7]/30 p-4 rounded-xl shadow-xs group hover:border-[#004ac6] transition-colors flex flex-col justify-between">
                     <div>
@@ -2695,33 +3383,6 @@ export default function Home() {
                       Soma Valor Carga R$
                     </p>
                   </div>
-
-                  {/* KPI 2: Despesas Oficina */}
-                  <DespesaCardTooltip stats={despesaOficinaStats}>
-                    <div className="bg-white border border-[#c3c6d7]/30 p-4 rounded-xl shadow-xs group hover:border-[#004ac6] transition-colors flex flex-col justify-between h-full select-none">
-                      <div>
-                        <div className="flex items-center justify-between">
-                          <span className="text-[11px] font-bold text-[#737686] uppercase">Despesas Oficina</span>
-                          <span className="text-[10px] font-bold text-[#434655] bg-gray-100 px-1.5 py-0.5 rounded-sm flex items-center gap-0.5">
-                            <Wrench className="w-2.5 h-2.5 text-[#004ac6]" /> Oficina
-                          </span>
-                        </div>
-                        <p className="text-xl font-black text-[#0b1c30] tracking-tight mt-2.5">
-                          R$ {metrics.despesaOficinaTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                        </p>
-                        
-                        {despesaOficinaStats.columnNotFound && (
-                          <div className="mt-2.5 text-[8.5px] text-[#ab0b1c] bg-[#ffdad6] px-1.5 py-1 rounded border border-[#ffdad6]/50 flex items-center gap-1 leading-normal">
-                            <AlertTriangle className="w-2.5 h-2.5 shrink-0" />
-                            <span>Coluna ausente na planilha importada.</span>
-                          </div>
-                        )}
-                      </div>
-                      <p className="text-[9px] text-[#737686] mt-3 font-semibold uppercase tracking-wider">
-                        Total Geral Oficina (R$)
-                      </p>
-                    </div>
-                  </DespesaCardTooltip>
 
                   {/* KPI 2: Total de Viagens */}
                   <div className="bg-white border border-[#c3c6d7]/30 p-4 rounded-xl shadow-xs flex flex-col justify-between">
@@ -2793,6 +3454,45 @@ export default function Home() {
                     </div>
                     <p className="text-[9px] text-[#737686] mt-3 font-semibold uppercase tracking-wider">
                       Veículos únicos em rota
+                    </p>
+                  </div>
+
+                  {/* KPI: Placas Sem Faturamento */}
+                  <SemFaturamentoTooltip plates={platesSemFaturamento} percent={pctSemFaturamento}>
+                    <div className="bg-white border border-[#c3c6d7]/30 p-4 rounded-xl shadow-xs flex flex-col justify-between border-l-4 border-l-[#ab0b1c]/70 hover:border-[#ab0b1c] transition-colors h-full select-none">
+                      <div>
+                        <span className="text-[11px] font-bold text-[#ab0b1c] uppercase flex items-center gap-1">
+                          <span className="w-1.5 h-1.5 rounded-full bg-[#ab0b1c]" /> Sem Faturamento
+                        </span>
+                        <p className="text-2xl font-black text-[#ab0b1c] tracking-tight mt-2.5">
+                          {platesSemFaturamento.length}
+                          <span className="text-xs font-semibold text-slate-500 ml-1.5">
+                            ({pctSemFaturamento}%)
+                          </span>
+                        </p>
+                      </div>
+                      <p className="text-[9px] text-[#737686] mt-3 font-semibold uppercase tracking-wider flex items-center justify-between">
+                        <span>Frota ativa sem receita</span>
+                        <span className="text-[8px] bg-red-50 text-red-600 px-1 py-0.2 rounded font-black border border-red-200">HOVER INFO</span>
+                      </p>
+                    </div>
+                  </SemFaturamentoTooltip>
+
+                  {/* KPI: Receita Potencial Não Faturada */}
+                  <div className="bg-white border border-[#c3c6d7]/30 p-4 rounded-xl shadow-xs flex flex-col justify-between border-l-4 border-l-amber-500 hover:border-amber-500 transition-colors h-full select-none">
+                    <div>
+                      <span className="text-[11px] font-bold text-amber-600 uppercase flex items-center gap-1">
+                        <TrendingDown className="w-3.5 h-3.5 shrink-0" /> Receita Potencial
+                      </span>
+                      <p className="text-xl font-black text-[#0b1c30] tracking-tight mt-2.5">
+                        R$ {potentialRevenueTotalStats.totalReceitaPotencial.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </p>
+                      <p className="text-[10px] text-slate-500 mt-1.5 font-medium">
+                        {potentialRevenueTotalStats.totalPlacasSemFaturamento} {potentialRevenueTotalStats.totalPlacasSemFaturamento === 1 ? 'placa' : 'placas'} sem receita
+                      </p>
+                    </div>
+                    <p className="text-[9px] text-[#737686] mt-3 font-semibold uppercase tracking-wider">
+                      Baseado na média de faturamento das placas ativas
                     </p>
                   </div>
 
@@ -2946,8 +3646,284 @@ export default function Home() {
                     </div>
                   </div>
 
-                  {/* Top Placas por Viagens card ranking */}
+                  {/* Evolução da Receita Potencial Não Faturada Line Chart */}
                   <div className="col-span-12 lg:col-span-6 bg-white border border-[#c3c6d7]/30 rounded-xl p-6 shadow-xs flex flex-col justify-between min-h-[352px]">
+                    <div>
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <h4 className="text-xs font-bold text-[#0b1c30]">Evolução da Receita Potencial Não Faturada</h4>
+                          <p className="text-[11px] text-[#737686] mt-1">Evolução mensal do faturamento não realizado</p>
+                        </div>
+                        <span className="text-[9px] font-black bg-amber-50 text-amber-600 px-2 py-0.5 rounded uppercase font-mono">OPORTUNIDADE</span>
+                      </div>
+                    </div>
+
+                    {/* Interactive SVG Line Chart */}
+                    <div className="flex-1 my-4 relative h-48 flex items-center justify-center">
+                      {potentialRevenueByMonth.length === 0 ? (
+                        <div className="text-xs font-bold text-gray-400 py-12">Nenhum dado mensal disponível para exibição.</div>
+                      ) : (() => {
+                        const chartHoveredIndex = potentialChartHoveredIndex;
+                        const setChartHoveredIndex = setPotentialChartHoveredIndex;
+
+                        // Layout Constants
+                        const chartHeight = 160;
+                        const chartWidth = 460;
+                        const paddingLeft = 45;
+                        const paddingRight = 15;
+                        const paddingTop = 20;
+                        const paddingBottom = 25;
+
+                        const visibleWidth = chartWidth - paddingLeft - paddingRight;
+                        const visibleHeight = chartHeight - paddingTop - paddingBottom;
+
+                        // Find maximum potential revenue to scale the graph
+                        const maxVal = Math.max(...potentialRevenueByMonth.map(d => d.receitaPotencial), 1000) * 1.15;
+
+                        // Helper coordinates generator
+                        const points = potentialRevenueByMonth.map((d, index) => {
+                          const x = paddingLeft + (potentialRevenueByMonth.length > 1
+                            ? (index / (potentialRevenueByMonth.length - 1)) * visibleWidth
+                            : visibleWidth / 2);
+                          const y = chartHeight - paddingBottom - (d.receitaPotencial / maxVal) * visibleHeight;
+                          return { x, y, d };
+                        });
+
+                        // Svg Path generator string
+                        let pathData = "";
+                        let areaData = "";
+                        if (points.length > 0) {
+                          pathData = `M ${points[0].x} ${points[0].y} ` + points.slice(1).map(p => `L ${p.x} ${p.y}`).join(" ");
+                          areaData = pathData + ` L ${points[points.length - 1].x} ${chartHeight - paddingBottom} L ${points[0].x} ${chartHeight - paddingBottom} Z`;
+                        }
+
+                        // Generate some standard y-axis ticks cleanly
+                        const yTicks = [0, maxVal / 2, maxVal];
+
+                        return (
+                          <div className="w-full h-full relative" onMouseLeave={() => setChartHoveredIndex(null)}>
+                            <svg className="w-full h-full" viewBox={`0 0 ${chartWidth} ${chartHeight}`} preserveAspectRatio="none">
+                              <defs>
+                                <linearGradient id="potentialGrad" x1="0" y1="0" x2="0" y2="1">
+                                  <stop offset="0%" stopColor="#ef4444" stopOpacity="0.12" />
+                                  <stop offset="100%" stopColor="#ef4444" stopOpacity="0.0" />
+                                </linearGradient>
+                                <filter id="redShadow" x="-10%" y="-10%" width="120%" height="120%">
+                                  <feDropShadow dx="0" dy="2" stdDeviation="1.5" floodColor="#ef4444" floodOpacity="0.2" />
+                                </filter>
+                              </defs>
+
+                              {/* Horizontal background gridlines */}
+                              {yTicks.map((tick, idx) => {
+                                const y = chartHeight - paddingBottom - (tick / maxVal) * visibleHeight;
+                                return (
+                                  <line
+                                    key={idx}
+                                    x1={paddingLeft}
+                                    y1={y}
+                                    x2={chartWidth - paddingRight}
+                                    y2={y}
+                                    stroke="#e2e8f0"
+                                    strokeWidth="1"
+                                    strokeDasharray="4 4"
+                                  />
+                                );
+                              })}
+
+                              {/* Hover vertical timeline guideline */}
+                              {chartHoveredIndex !== null && points[chartHoveredIndex] && (
+                                <line
+                                  x1={points[chartHoveredIndex].x}
+                                  y1={paddingTop}
+                                  x2={points[chartHoveredIndex].x}
+                                  y2={chartHeight - paddingBottom}
+                                  stroke="#ef4444"
+                                  strokeWidth="1"
+                                  strokeDasharray="3 3"
+                                  opacity="0.4"
+                                />
+                              )}
+
+                              {/* Gradient overlay fill below line */}
+                              {areaData && (
+                                <path d={areaData} fill="url(#potentialGrad)" className="transition-all duration-500" />
+                              )}
+
+                              {/* Line Path */}
+                              {pathData && (
+                                <path
+                                  d={pathData}
+                                  fill="none"
+                                  stroke="#dc2626"
+                                  strokeWidth="1.75"
+                                  strokeLinecap="round"
+                                  filter="url(#redShadow)"
+                                  className="transition-all duration-500 animate-fade-in"
+                                />
+                              )}
+
+                              {/* Interactive dots with ring styling */}
+                              {points.map((p, idx) => (
+                                <g key={idx}>
+                                  <circle
+                                    cx={p.x}
+                                    cy={p.y}
+                                    r={chartHoveredIndex === idx ? 6.5 : 4}
+                                    fill={chartHoveredIndex === idx ? "#dc2626" : "#ffffff"}
+                                    stroke="#dc2626"
+                                    strokeWidth={chartHoveredIndex === idx ? 2.5 : 1.75}
+                                    style={{ transition: "all 0.15s ease-out" }}
+                                    className="cursor-pointer"
+                                    onClick={() => setSelectedPotentialMonth(p.d.mes)}
+                                  />
+                                </g>
+                              ))}
+
+                              {/* Y Axis Tick Labels */}
+                              {yTicks.map((tick, idx) => {
+                                const y = chartHeight - paddingBottom - (tick / maxVal) * visibleHeight;
+                                return (
+                                  <text
+                                    key={idx}
+                                    x={paddingLeft - 8}
+                                    y={y + 3.5}
+                                    textAnchor="end"
+                                    fill="#64748b"
+                                    className="text-[9px] font-bold font-mono"
+                                  >
+                                    {tick >= 1000000 
+                                      ? `R$ ${(tick / 1000000).toFixed(1)}M` 
+                                      : `R$ ${(tick / 1000).toFixed(0)}k`
+                                    }
+                                  </text>
+                                );
+                              })}
+
+                              {/* X Axis Labels */}
+                              {points.map((p, idx) => (
+                                <text
+                                  key={idx}
+                                  x={p.x}
+                                  y={chartHeight - 8}
+                                  textAnchor="middle"
+                                  fill="#64748b"
+                                  className="text-[9px] font-bold"
+                                >
+                                  {p.d.mes.slice(0, 3)}
+                                </text>
+                              ))}
+                            </svg>
+
+                            {/* Invisible Column overlays to simplify mouse hovering */}
+                            <div className="absolute inset-0 flex" style={{ paddingLeft, paddingRight, paddingTop, paddingBottom: paddingBottom }}>
+                              {points.map((p, idx) => (
+                                <div
+                                  key={idx}
+                                  className="h-full flex-1 cursor-pointer"
+                                  onMouseEnter={() => setChartHoveredIndex(idx)}
+                                  onClick={() => setSelectedPotentialMonth(p.d.mes)}
+                                />
+                              ))}
+                            </div>
+
+                            {/* Rich Hover Tooltip Overlay with flawless pt-BR formatting */}
+                            {chartHoveredIndex !== null && points[chartHoveredIndex] && (() => {
+                              const item = points[chartHoveredIndex].d;
+                              const posX = points[chartHoveredIndex].x;
+                              const isLeft = chartHoveredIndex > points.length / 2;
+
+                              return (
+                                <div
+                                  className="absolute bg-slate-900 text-white rounded-xl p-4 shadow-2xl border border-slate-800 pointer-events-none z-10 text-xs w-64 flex flex-col gap-2 font-sans tracking-wide"
+                                  style={{
+                                    top: "-30px",
+                                    left: isLeft ? `${posX - 275}px` : `${posX + 15}px`,
+                                    transition: "left 0.1s ease-out"
+                                  }}
+                                >
+                                  <div className="font-black text-[#f59e0b] uppercase text-sm mb-1.5 border-b border-white/10 pb-1.5 flex items-center justify-between">
+                                    <span>{item.mes}</span>
+                                    <span className="text-[9px] bg-amber-500/20 text-amber-300 px-1.5 py-0.5 rounded font-bold">PERDA POTENCIAL</span>
+                                  </div>
+                                  <div className="flex justify-between items-center text-xs text-gray-300">
+                                    <span>Placas faturadas:</span>
+                                    <span className="font-extrabold text-white text-sm">{item.countFaturadas}</span>
+                                  </div>
+                                  <div className="flex justify-between items-center text-xs text-gray-300">
+                                    <span>Placas sem faturamento:</span>
+                                    <span className="font-extrabold text-amber-400 text-sm">{item.countSemFaturamento}</span>
+                                  </div>
+                                  <div className="flex justify-between items-center text-xs text-gray-300">
+                                    <span>Faturamento médio:</span>
+                                    <span className="font-mono font-bold text-white text-sm">
+                                      R$ {item.faturamentoMedio.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}
+                                    </span>
+                                  </div>
+                                  <div className="flex justify-between items-center border-t border-white/10 pt-2 mt-1.5 text-amber-400 font-extrabold text-xs">
+                                    <span>Receita potencial perdida:</span>
+                                    <span className="font-mono text-sm">
+                                      R$ {item.receitaPotencial.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}
+                                    </span>
+                                  </div>
+                                  <div className="text-[9px] text-amber-350/70 font-bold uppercase mt-1 italic text-center border-t border-white/5 pt-1.5">
+                                    ✨ Clique para listar placas e filiais
+                                  </div>
+                                </div>
+                              );
+                            })()}
+                          </div>
+                        );
+                      })()}
+                    </div>
+
+                    <div className="text-[10px] text-gray-500 font-bold text-center border-t border-slate-100 pt-2.5">
+                      Passe o mouse para detalhar ou clique para ver a lista de placas e filiais.
+                    </div>
+                  </div>
+                </div>
+
+                {/* Lower Charts row */}
+                <div className="grid grid-cols-12 gap-6 mt-8">
+                  {/* Faturamento por Placa Bar Chart horizontal with rounded ends */}
+                  <div className="col-span-12 lg:col-span-4 bg-white border border-[#c3c6d7]/30 rounded-xl p-6 shadow-xs flex flex-col justify-between min-h-[352px]">
+                    <div>
+                      <h4 className="text-xs font-bold text-[#0b1c30]">Faturamento por Placa</h4>
+                      <p className="text-[11px] text-[#737686] mt-1 mb-6">Valor total faturado (R$)</p>
+                    </div>
+
+                    <div className="space-y-4 flex-1 flex flex-col justify-center">
+                      {(() => {
+                        const topRankings = rankings.slice(0, 4);
+                        const maxFaturamentoPlaca = Math.max(...topRankings.map(r => r.faturamentoTotal), 1);
+                        return topRankings.map((r, index) => {
+                          const isHighPerf = r.statusMeta === 'Dentro da Meta';
+                          const formattedVal = r.faturamentoTotal.toLocaleString('pt-BR', { maximumFractionDigits: 0 });
+                          const barWidthPercent = (r.faturamentoTotal / maxFaturamentoPlaca) * 100;
+                          return (
+                            <div key={`${r.placa}-${r.mes || ''}-${r.ano || ''}-${index}`} className="flex items-center gap-4 group">
+                              <span className="w-16 text-[10px] font-extrabold text-[#434655] tracking-wider text-left leading-none uppercase truncate" title={`${r.placa} ${r.mes ? `(${r.mes})` : ''}`}>
+                                {r.placa} {r.mes && `(${r.mes.slice(0,3)})`}
+                              </span>
+                              <div className="flex-1 bg-gray-50 h-7.5 rounded-md overflow-hidden flex items-center relative pr-2">
+                                <motion.div
+                                  initial={{ width: '0%' }}
+                                  animate={{ width: `${Math.max(4, barWidthPercent)}%` }}
+                                  transition={{ type: 'spring', stiffness: 45 }}
+                                  className={`h-full ${isHighPerf ? 'bg-[#004ac6]' : 'bg-[#ab0b1c]'} rounded-r-md group-hover:opacity-90`}
+                                />
+                                <span className="absolute right-2 text-[10px] font-black text-black">
+                                  R$ {formattedVal}
+                                </span>
+                              </div>
+                            </div>
+                          );
+                        });
+                      })()}
+                    </div>
+                  </div>
+
+                  {/* Top Placas por Viagens card ranking */}
+                  <div className="col-span-12 lg:col-span-4 bg-white border border-[#c3c6d7]/30 rounded-xl p-6 shadow-xs flex flex-col justify-between min-h-[352px]">
                     <div>
                       <h4 className="text-xs font-bold text-[#0b1c30]">Top Placas por Viagens</h4>
                       <p className="text-[11px] text-[#737686] mt-1">Ranking de produtividade da frota</p>
@@ -2978,7 +3954,7 @@ export default function Home() {
                                 />
                               </div>
                             </div>
-                            <span className="text-lg font-black text-[#004ac6] w-6 text-right leading-none">
+                            <span className="text-sm font-black text-[#004ac6] w-6 text-right leading-none">
                               {r.viagensCount}
                             </span>
                           </div>
@@ -2993,50 +3969,9 @@ export default function Home() {
                       Ver Ranking Completo
                     </button>
                   </div>
-                </div>
-
-                {/* Lower Charts row */}
-                <div className="grid grid-cols-12 gap-6 mt-8">
-                  {/* Faturamento por Placa Bar Chart horizontal with rounded ends */}
-                  <div className="col-span-12 lg:col-span-8 bg-white border border-[#c3c6d7]/30 rounded-xl p-6 shadow-xs flex flex-col justify-between">
-                    <div>
-                      <h4 className="text-xs font-bold text-[#0b1c30]">Faturamento por Placa</h4>
-                      <p className="text-[11px] text-[#737686] mt-1 mb-6">Valor total faturado (R$)</p>
-                    </div>
-
-                    <div className="space-y-4">
-                      {(() => {
-                        const topRankings = rankings.slice(0, 6);
-                        const maxFaturamentoPlaca = Math.max(...topRankings.map(r => r.faturamentoTotal), 1);
-                        return topRankings.map((r, index) => {
-                          const isHighPerf = r.statusMeta === 'Dentro da Meta';
-                          const formattedVal = r.faturamentoTotal.toLocaleString('pt-BR', { maximumFractionDigits: 0 });
-                          const barWidthPercent = (r.faturamentoTotal / maxFaturamentoPlaca) * 100;
-                          return (
-                            <div key={`${r.placa}-${r.mes || ''}-${r.ano || ''}-${index}`} className="flex items-center gap-4 group">
-                              <span className="w-20 text-[10px] font-extrabold text-[#434655] tracking-wider text-left leading-none uppercase truncate" title={`${r.placa} ${r.mes ? `(${r.mes})` : ''}`}>
-                                {r.placa} {r.mes && `(${r.mes.slice(0,3)})`}
-                              </span>
-                              <div className="flex-1 bg-gray-50 h-7.5 rounded-md overflow-hidden flex items-center relative pr-4">
-                                <motion.div
-                                  initial={{ width: '0%' }}
-                                  animate={{ width: `${Math.max(4, barWidthPercent)}%` }}
-                                  transition={{ type: 'spring', stiffness: 45 }}
-                                  className={`h-full ${isHighPerf ? 'bg-[#004ac6]' : 'bg-[#ab0b1c]'} rounded-r-md group-hover:opacity-90`}
-                                />
-                                <span className="absolute right-4 text-[10.5px] font-black text-black">
-                                  R$ {formattedVal}
-                                </span>
-                              </div>
-                            </div>
-                          );
-                        });
-                      })()}
-                    </div>
-                  </div>
 
                   {/* List of active top performance drivers styled inside clean bento card */}
-                  <div className="col-span-12 lg:col-span-4 bg-white border border-[#c3c6d7]/30 rounded-xl p-6 shadow-xs flex flex-col justify-between min-h-[340px]">
+                  <div className="col-span-12 lg:col-span-4 bg-white border border-[#c3c6d7]/30 rounded-xl p-6 shadow-xs flex flex-col justify-between min-h-[352px]">
                     <div>
                       <h4 className="text-xs font-bold text-[#0b1c30]">Top Motoristas</h4>
                       <p className="text-[11px] text-[#737686] mt-1 mb-6">Viagens concluídas e valores de frota</p>
@@ -3073,8 +4008,6 @@ export default function Home() {
                         );
                       })}
                     </div>
-
-
                   </div>
                 </div>
               </motion.div>
@@ -3096,7 +4029,7 @@ export default function Home() {
               const tripsDentroPercent = totalTripsCount > 0 ? Math.round((tripsDentroCount / totalTripsCount) * 100) : 0;
               const tripsForaPercent = totalTripsCount > 0 ? 100 - tripsDentroPercent : 0;
 
-              const totalTrips = activeViagens.length;
+              const totalTrips = activeViagens.filter(v => !isSemFaturamento(v)).length;
               const mediaViagens = totalPlacas > 0 ? (totalTrips / totalPlacas).toFixed(1).replace('.', ',') : '0';
 
               const melhorPlaca = rankings[0]?.placa || 'N/A';
@@ -3188,14 +4121,14 @@ export default function Home() {
 
                   {/* SEVEN PILL KPI GRID */}
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-7 gap-4">
-                    {/* KPI 1: TOTAL DE VIAGENS */}
+                    {/* KPI 1: QUANTIDADE DE VIAGENS GERAL */}
                     <div className="bg-white border border-[#c3c6d7]/30 rounded-2xl p-4.5 xl:p-5 flex items-center gap-3.5 shadow-xs transition-all duration-300 ease-in-out hover:scale-[1.03] hover:-translate-y-1 hover:shadow-lg hover:border-[#004ac6]/40 cursor-pointer">
                       <div className="w-12 h-12 rounded-full bg-blue-50 flex items-center justify-center shrink-0 border border-blue-100">
                         <Truck className="w-6 h-6 text-[#004ac6]" />
                       </div>
                       <div>
-                        <p className="text-[10px] text-[#737686] font-bold uppercase tracking-wider leading-none">TOTAL DE VIAGENS</p>
-                        <p className="text-3xl font-black text-[#0b1c30] mt-2.5 leading-none">{totalTrips.toLocaleString('pt-BR')}</p>
+                        <p className="text-[10px] text-[#737686] font-bold uppercase tracking-wider leading-none">QTD VIAGENS GERAL</p>
+                        <p className="text-3xl font-black text-[#0b1c30] mt-2.5 leading-none">{metrics.totalViagens.toLocaleString('pt-BR')}</p>
                       </div>
                     </div>
 
@@ -3728,11 +4661,29 @@ export default function Home() {
                                     </span>
                                   </td>
                                   <td className="px-4 py-3.5">
-                                    <PlateTooltip plateData={r}>
-                                      <span className="cursor-help inline-block px-2.5 py-1 rounded-lg bg-[#eff4ff] text-[#004ac6] border border-[#c3c6d7]/30 font-mono text-[11px] font-extrabold hover:border-[#004ac6] transition-all whitespace-nowrap">
-                                        {r.placa}
-                                      </span>
-                                    </PlateTooltip>
+                                    <div className="flex flex-col gap-1 items-start">
+                                      <PlateTooltip plateData={r}>
+                                        <span 
+                                          title={r.statusFaturamento === 'SEM FATURAMENTO' ? 'Veículo sem faturamento no período selecionado' : undefined}
+                                          className={`cursor-help inline-block px-2.5 py-1 rounded-lg font-mono text-[11px] font-extrabold transition-all whitespace-nowrap border ${
+                                            r.statusFaturamento === 'SEM FATURAMENTO'
+                                              ? 'bg-rose-50 text-rose-700 border-rose-250 hover:border-rose-500'
+                                              : 'bg-[#eff4ff] text-[#004ac6] border-[#c3c6d7]/30 hover:border-[#004ac6]'
+                                          }`}
+                                        >
+                                          {r.placa}
+                                        </span>
+                                      </PlateTooltip>
+                                      {r.statusFaturamento === 'SEM FATURAMENTO' ? (
+                                        <span className="inline-block text-[9px] bg-rose-50 text-rose-600 border border-rose-200 rounded px-1 py-0.5 leading-none font-black select-none uppercase tracking-wider">
+                                          SEM FATURAMENTO
+                                        </span>
+                                      ) : (
+                                        <span className="inline-block text-[9px] bg-emerald-50 text-emerald-700 border border-emerald-200 rounded px-1 py-0.5 leading-none font-black select-none uppercase tracking-wider">
+                                          FATUROU
+                                        </span>
+                                      )}
+                                    </div>
                                   </td>
                                   <td className="px-4 py-3.5 text-slate-600 font-bold uppercase max-w-[120px] truncate" title={r.supervisor || 'Sem Supervisor'}>
                                     {r.supervisor || 'Sem Supervisor'}
@@ -6345,6 +7296,13 @@ export default function Home() {
         categoryLabel={selectedTripCategory}
         rankings={rankings}
         onClose={() => setSelectedTripCategory(null)}
+      />
+
+      {/* Potential Revenue Detail Modal Component */}
+      <PotentialRevenueDetailModal
+        mesSelected={selectedPotentialMonth}
+        preFilteredViagens={preFilteredViagens}
+        onClose={() => setSelectedPotentialMonth(null)}
       />
 
       {/* Settings Logo Manager Modal */}

@@ -561,22 +561,41 @@ function localNormalizeMonthName(m: string): string {
   return m.charAt(0).toUpperCase() + m.slice(1).toLowerCase();
 }
 
+// Business rule for "SEM FATURAMENTO":
+// CONHECIMENTO = "N/D", ROTA = "N/D", FATURAMENTO (valorCarga) empty, null, or zero
+export function isSemFaturamento(v: { conhecimento?: string; id?: string; rota?: string; valorCarga?: number }): boolean {
+  const c = String(v.conhecimento || v.id || '').trim().toUpperCase();
+  const r = String(v.rota || '').trim().toUpperCase();
+  const val = v.valorCarga ?? 0;
+  return (c === 'N/D' || c.includes('N/D')) && (r === 'N/D' || r.includes('N/D')) && val === 0;
+}
+
 // Compute dynamic executive metrics from any array of viajes (which supports imports perfectly)
 export function computeExecutiveMetrics(viagens: Viagem[]): ExecutiveMetrics {
   const faturamentoTotal = viagens.reduce((sum, v) => sum + v.valorCarga, 0);
   
   // Group unique/conhecimentos per plate per month-year combo
   const plateMonthConhecimentos: Record<string, Record<string, Set<string>>> = {};
+  
+  const platesWithBilling = new Set<string>();
+  const platesWithoutBilling = new Set<string>();
+
   viagens.forEach(v => {
     const p = v.placa.trim().toUpperCase();
     if (!p) return;
     
+    if (isSemFaturamento(v)) {
+      platesWithoutBilling.add(p);
+    } else {
+      platesWithBilling.add(p);
+    }
+
     const m = localNormalizeMonthName(v.mes || 'Maio');
     const y = String(v.ano || '2026');
     const key = `${m} | ${y}`;
     
     const conId = (v.conhecimento || v.id || '').trim();
-    if (conId) {
+    if (conId && conId.toUpperCase() !== 'N/D' && !conId.toUpperCase().includes('N/D')) {
       if (!plateMonthConhecimentos[p]) {
         plateMonthConhecimentos[p] = {};
       }
@@ -608,12 +627,26 @@ export function computeExecutiveMetrics(viagens: Viagem[]): ExecutiveMetrics {
   // Unique plates count (vehicles unique on route)
   const totalPlacas = new Set(viagens.map(v => v.placa.trim().toUpperCase()).filter(Boolean)).size;
   
-  // Unique trip achievements based on "conhecimento" code
-  const totalUniqueConhecimentos = new Set(viagens.map(v => (v.conhecimento || v.id || '').trim()).filter(Boolean)).size;
+  // Unique trip achievements based on "conhecimento" code (excluding 'N/D' and sem faturamento)
+  const totalUniqueConhecimentos = new Set(
+    viagens
+      .filter(v => !isSemFaturamento(v))
+      .map(v => (v.conhecimento || v.id || '').trim())
+      .filter(c => c && c.toUpperCase() !== 'N/D' && !c.toUpperCase().includes('N/D'))
+  ).size;
+
   const percentMetaAtingida = metaGlobal > 0 ? Math.round((totalUniqueConhecimentos / metaGlobal) * 100) : 0;
 
   const kmRodadoTotal = viagens.reduce((sum, v) => sum + v.kmRodado, 0);
   const despesaOficinaTotal = viagens.reduce((sum, v) => sum + (v.despesaOficina || 0), 0);
+
+  // A plate is considered truly "without faturamento" if it has NO billed/active rows in the selection
+  const finalPlatesWithoutBilling = new Set<string>();
+  platesWithoutBilling.forEach(p => {
+    if (!platesWithBilling.has(p)) {
+      finalPlatesWithoutBilling.add(p);
+    }
+  });
 
   return {
     faturamentoTotal,
@@ -624,7 +657,8 @@ export function computeExecutiveMetrics(viagens: Viagem[]): ExecutiveMetrics {
     dentroMetaCount,
     foraMetaCount,
     kmRodadoTotal,
-    despesaOficinaTotal
+    despesaOficinaTotal,
+    placasNaoFaturadasCount: finalPlatesWithoutBilling.size
   };
 }
 
@@ -647,6 +681,7 @@ export function computePlacaMetrics(
     motoristas: Record<string, number>;
     conhecimentos: Set<string>;
     ultimaRota: string;
+    hasBilling: boolean;
   }> = {};
 
   viagens.forEach(v => {
@@ -668,13 +703,18 @@ export function computePlacaMetrics(
         supervisores: {},
         motoristas: {},
         conhecimentos: new Set<string>(),
-        ultimaRota: ''
+        ultimaRota: '',
+        hasBilling: false
       };
     }
     const g = placaGroup[groupKey];
     g.faturamento += v.valorCarga || 0;
     g.kmTotal += v.kmRodado || 0;
     g.despesaOficinaTotal += v.despesaOficina || 0;
+
+    if (!isSemFaturamento(v)) {
+      g.hasBilling = true;
+    }
 
     const sup = v.supervisao || 'Sem Supervisor';
     g.supervisores[sup] = (g.supervisores[sup] || 0) + 1;
@@ -687,7 +727,7 @@ export function computePlacaMetrics(
     }
 
     const conId = (v.conhecimento || v.id || '').trim();
-    if (conId) {
+    if (conId && !isSemFaturamento(v)) {
       g.conhecimentos.add(conId);
     }
   });
@@ -748,7 +788,8 @@ export function computePlacaMetrics(
       targetMeta: targetTripsForThisPlate,
       mes: data.mes,
       ano: data.ano,
-      ultimaRota: data.ultimaRota || 'Sem rota programada'
+      ultimaRota: data.ultimaRota || 'Sem rota programada',
+      statusFaturamento: (data.hasBilling ? 'FATUROU' : 'SEM FATURAMENTO') as 'FATUROU' | 'SEM FATURAMENTO'
     };
   }).sort((a, b) => b.viagensCount - a.viagensCount || b.faturamentoTotal - a.faturamentoTotal);
 }
@@ -763,7 +804,9 @@ export function computeMotoristaMetrics(viagens: Viagem[]): MotoristaMetrics[] {
       driverGroup[m] = { faturamento: 0, trips: 0 };
     }
     driverGroup[m].faturamento += v.valorCarga;
-    driverGroup[m].trips += 1;
+    if (!isSemFaturamento(v)) {
+      driverGroup[m].trips += 1;
+    }
   });
 
   return Object.keys(driverGroup).map((nome, index): MotoristaMetrics => {
@@ -793,18 +836,21 @@ export function computeRouteMetrics(viagens: Viagem[]): RouteMetrics[] {
       routeGroup[r] = { daysSum: 0, trips: 0, kmSum: 0, valueSum: 0 };
     }
     routeGroup[r].daysSum += v.qtdDias;
-    routeGroup[r].trips += 1;
+    if (!isSemFaturamento(v)) {
+      routeGroup[r].trips += 1;
+    }
     routeGroup[r].kmSum += v.kmRodado;
     routeGroup[r].valueSum += v.valorCarga;
   });
 
   return Object.keys(routeGroup).map(rota => {
     const data = routeGroup[rota];
+    const tripsCount = data.trips;
     return {
       rota,
-      avgDays: parseFloat((data.daysSum / data.trips).toFixed(1)),
-      totalTrips: data.trips,
-      avgKm: Math.round(data.kmSum / data.trips),
+      avgDays: tripsCount > 0 ? parseFloat((data.daysSum / tripsCount).toFixed(1)) : 0,
+      totalTrips: tripsCount,
+      avgKm: tripsCount > 0 ? Math.round(data.kmSum / tripsCount) : 0,
       totalValue: data.valueSum
     };
   }).sort((a, b) => b.totalTrips - a.totalTrips);
