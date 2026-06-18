@@ -1628,6 +1628,8 @@ export default function Home() {
         if (fetched && fetched.length > 0) {
           setViagens(fetched);
           saveViagensToDB(fetched); // Sync to local IndexedDB backup
+        } else {
+          setViagens(INITIAL_VIAGENS);
         }
         setDbLoading(false);
       })
@@ -1636,6 +1638,8 @@ export default function Home() {
         getViagensFromDB().then((saved) => {
           if (saved && saved.length > 0) {
             setViagens(saved);
+          } else {
+            setViagens(INITIAL_VIAGENS);
           }
         });
         setDbLoading(false);

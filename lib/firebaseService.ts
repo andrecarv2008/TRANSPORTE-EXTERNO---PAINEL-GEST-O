@@ -43,9 +43,25 @@ export async function fetchViagensFromFirestore(): Promise<Viagem[]> {
     const q = query(collection(db, VIAGENS_COLLECTION));
     const querySnapshot = await getDocs(q);
     
+    if (querySnapshot.empty) {
+      console.log("No data found in Firestore 'viagens' collection. Auto-seeding with INITIAL_VIAGENS...");
+      try {
+        // Try to write INITIAL_VIAGENS to Firestore to seed it permanently. 
+        // If the user is not authenticated or lacks permission, this might fail, 
+        // which is fine (we still return INITIAL_VIAGENS below).
+        await saveViagensToFirestore(INITIAL_VIAGENS, 'substituir', {
+          uploaderName: 'Sistema (Auto-seed)',
+          fileName: 'Banco de Dados Inicial'
+        });
+      } catch (seedErr) {
+        console.warn("Auto-seeding Firestore failed (this is expected if you are not logged in as Admin yet):", seedErr);
+      }
+      return INITIAL_VIAGENS;
+    }
+
     const docs: Viagem[] = [];
-    querySnapshot.forEach((doc) => {
-      const data = doc.data() as Viagem;
+    querySnapshot.forEach((docSnap) => {
+      const data = docSnap.data() as Viagem;
       if (data && data.supervisao) {
         const supUpper = data.supervisao.trim().toUpperCase();
         if (supUpper === 'LEONAN BRAGA NONATO' || supUpper.includes('LEONAN')) {
@@ -57,8 +73,9 @@ export async function fetchViagensFromFirestore(): Promise<Viagem[]> {
 
     return docs;
   } catch (error) {
-    handleFirestoreError(error, OperationType.GET, VIAGENS_COLLECTION);
-    return []; // fallback of type safety
+    console.warn("Could not fetch elements from cloud Firestore, fallback to INITIAL_VIAGENS:", error);
+    // In compliance with offline capability, return INITIAL_VIAGENS so dashboard is never empty
+    return INITIAL_VIAGENS;
   }
 }
 
