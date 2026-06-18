@@ -1492,7 +1492,7 @@ const PotentialRevenueDetailModal = ({ mesSelected, preFilteredViagens, onClose 
 };
 
 export default function Home() {
-  const [viagens, setViagens] = React.useState<Viagem[]>([]);
+  const [viagens, setViagens] = React.useState<Viagem[]>(INITIAL_VIAGENS);
   const [isSidebarOpen, setIsSidebarOpen] = React.useState(false);
   const [hoveredBarLabel, setHoveredBarLabel] = React.useState<string | null>(null);
   const [activeTab, setActiveTab] = React.useState<'dashboard' | 'vehiculos' | 'rotas' | 'relatorios' | 'comparativo' | 'perfil' | 'ranking_supervisao'>('dashboard');
@@ -1509,6 +1509,7 @@ export default function Home() {
   });
   const [selectedComparisonKey, setSelectedComparisonKey] = React.useState<string | null>(null);
   const [comparisonBaseKey, setComparisonBaseKey] = React.useState<string | null>(null);
+  const [comparativoChartMetric, setComparativoChartMetric] = React.useState<'faturamento' | 'viagens'>('viagens');
   const [isImportOpen, setIsImportOpen] = React.useState(false);
   const [searchQuery, setSearchQuery] = React.useState('');
   const [searchMotorista, setSearchMotorista] = React.useState('');
@@ -1530,6 +1531,12 @@ export default function Home() {
   const [selectedSupervisores, setSelectedSupervisores] = React.useState<string[]>([]);
   const [statusMetaFilter, setStatusMetaFilter] = React.useState<'ALL' | 'DENTRO' | 'FORA'>('ALL');
   const [billingFilter, setBillingFilter] = React.useState<'ALL' | 'FATURADO' | 'NAO_FATURADO'>('ALL');
+  const activeFiliaisLabel = React.useMemo(() => {
+    if (selectedFiliais && selectedFiliais.length > 0) {
+      return selectedFiliais.join(', ');
+    }
+    return 'Todas as Filiais';
+  }, [selectedFiliais]);
   const [potentialChartHoveredIndex, setPotentialChartHoveredIndex] = React.useState<number | null>(null);
   const [selectedPotentialMonth, setSelectedPotentialMonth] = React.useState<string | null>(null);
   
@@ -2621,12 +2628,35 @@ export default function Home() {
   // Memo with monthly aggregates and MoM variation percentages, respecting active non-temporal filters
   const comparativoMensal = React.useMemo(() => {
     let list = viagens;
+
+    // Filter by Filial (Multi-select)
     if (selectedFiliais && selectedFiliais.length > 0) {
       list = list.filter(v => selectedFiliais.includes(v.filial || 'Filial São Luís'));
     }
+
+    // Filter by Ano (Multi-select)
+    if (selectedAnos && selectedAnos.length > 0) {
+      list = list.filter(v => selectedAnos.includes(String(v.ano || 2026)));
+    }
+
+    // Filter by Supervisor (Multi-select)
     if (selectedSupervisores && selectedSupervisores.length > 0) {
       list = list.filter(v => selectedSupervisores.includes(v.supervisao || 'Sem Supervisor'));
     }
+
+    // Search by Driver
+    if (searchMotorista.trim().length > 0) {
+      const q = searchMotorista.toLowerCase();
+      list = list.filter(v => v.motorista && v.motorista.toLowerCase().includes(q));
+    }
+
+    // Search by Plate/Placa
+    if (searchPlaca.trim().length > 0) {
+      const q = searchPlaca.toUpperCase().trim();
+      list = list.filter(v => v.placa && v.placa.toUpperCase().includes(q));
+    }
+
+    // Direct header-level search query on vehicles, drivers and routes
     if (searchQuery.trim().length > 0) {
       const q = searchQuery.toLowerCase();
       list = list.filter(v =>
@@ -2635,6 +2665,26 @@ export default function Home() {
         v.rota.toLowerCase().includes(q)
       );
     }
+
+    // Filter by Meta Status ('ALL' | 'DENTRO' | 'FORA')
+    if (statusMetaFilter && statusMetaFilter !== 'ALL') {
+      const counts: Record<string, number> = {};
+      list.forEach(v => {
+        counts[v.placa] = (counts[v.placa] || 0) + 1;
+      });
+      const activeMonthsCount = selectedMeses && selectedMeses.length > 0 
+        ? selectedMeses.length 
+        : mesesDrop.length;
+      const targetTrips = activeMonthsCount * 4;
+
+      if (statusMetaFilter === 'DENTRO') {
+        list = list.filter(v => (counts[v.placa] || 0) >= targetTrips);
+      } else if (statusMetaFilter === 'FORA') {
+        list = list.filter(v => (counts[v.placa] || 0) < targetTrips);
+      }
+    }
+
+    // Handle billingFilter (Faturado / Não Faturado)
     if (billingFilter === 'FATURADO') {
       list = list.filter(v => !isSemFaturamento(v));
     } else if (billingFilter === 'NAO_FATURADO') {
@@ -2646,11 +2696,7 @@ export default function Home() {
       ano: number;
       mesNome: string;
       mesNum: string;
-      faturamentoBruto: number;
-      despesaOficina: number;
-      qtdViagens: number;
-      veiculosUnicos: Set<string>;
-      kmRodado: number;
+      listForMonth: Viagem[];
     }> = {};
 
     list.forEach(v => {
@@ -2665,27 +2711,45 @@ export default function Home() {
           ano,
           mesNome,
           mesNum,
-          faturamentoBruto: 0,
-          despesaOficina: 0,
-          qtdViagens: 0,
-          veiculosUnicos: new Set(),
-          kmRodado: 0
+          listForMonth: []
         };
       }
-
-      groups[key].faturamentoBruto += v.valorCarga || 0;
-      groups[key].despesaOficina += v.despesaOficina || 0;
-      groups[key].qtdViagens += 1;
-      groups[key].veiculosUnicos.add(v.placa);
-      groups[key].kmRodado += v.kmRodado || 0;
+      groups[key].listForMonth.push(v);
     });
 
     const sortedMonths = Object.values(groups)
-      .map(g => ({
-        ...g,
-        faturamentoLiquido: g.faturamentoBruto - g.despesaOficina,
-        qtdVeiculos: g.veiculosUnicos.size
-      }))
+      .map(g => {
+        const faturamentoBruto = g.listForMonth.reduce((sum, v) => sum + (v.valorCarga || 0), 0);
+        const despesaOficina = g.listForMonth.reduce((sum, v) => sum + (v.despesaOficina || 0), 0);
+        const faturamentoLiquido = faturamentoBruto - despesaOficina;
+        const kmRodado = g.listForMonth.reduce((sum, v) => sum + (v.kmRodado || 0), 0);
+
+        // Trips performed (totalViagens on dashboard: unique billed conhecimentos)
+        const listSemFatEmpty = g.listForMonth.filter(v => !isSemFaturamento(v));
+        const qtdViagens = new Set(
+          listSemFatEmpty
+            .map(v => (v.conhecimento || v.id || '').trim())
+            .filter(c => c && c.toUpperCase() !== 'N/D' && !c.toUpperCase().includes('N/D'))
+        ).size;
+
+        // Active unique plates (totalPlacas on dashboard)
+        const qtdVeiculos = new Set(
+          g.listForMonth.map(v => v.placa.trim().toUpperCase()).filter(Boolean)
+        ).size;
+
+        return {
+          key: g.key,
+          ano: g.ano,
+          mesNome: g.mesNome,
+          mesNum: g.mesNum,
+          faturamentoBruto,
+          despesaOficina,
+          faturamentoLiquido,
+          kmRodado,
+          qtdViagens,
+          qtdVeiculos
+        };
+      })
       .sort((a, b) => a.key.localeCompare(b.key));
 
     const computedList = sortedMonths.map((curr, idx) => {
@@ -2758,7 +2822,37 @@ export default function Home() {
     });
 
     return computedList;
-  }, [viagens, selectedFiliais, selectedSupervisores, searchQuery, billingFilter]);
+  }, [viagens, selectedFiliais, selectedAnos, selectedSupervisores, searchMotorista, searchPlaca, searchQuery, statusMetaFilter, billingFilter, selectedMeses, mesesDrop]);
+
+  const tripsComparisonMoM = React.useMemo(() => {
+    if (!selectedMeses || selectedMeses.length !== 1) {
+      return null;
+    }
+    const selectedM = normalizeMonthName(selectedMeses[0]);
+    const targetYear = selectedAnos && selectedAnos.length === 1 ? Number(selectedAnos[0]) : null;
+    
+    // Find the month in comparativoMensal
+    const idx = comparativoMensal.findIndex(c => {
+      const matchM = normalizeMonthName(c.mesNome) === selectedM;
+      if (!matchM) return false;
+      if (targetYear !== null) {
+        return c.ano === targetYear;
+      }
+      return true;
+    });
+    
+    if (idx === -1) return null;
+    
+    const currentItem = comparativoMensal[idx];
+    const prevItem = idx > 0 ? comparativoMensal[idx - 1] : null;
+    
+    return {
+      currentQtd: currentItem.qtdViagens,
+      prevQtd: prevItem ? prevItem.qtdViagens : null,
+      percent: currentItem.varQtdViagens,
+      prevMonthName: prevItem ? prevItem.mesNome : null
+    };
+  }, [selectedMeses, selectedAnos, comparativoMensal]);
 
   // Effect to select default comparison key when the list loads or updates
   React.useEffect(() => {
@@ -3372,7 +3466,7 @@ export default function Home() {
                   <div className="bg-white border border-[#c3c6d7]/30 p-5 sm:p-6 rounded-2xl shadow-xs group hover:border-[#004ac6] transition-colors flex flex-col justify-between">
                     <div>
                       <div className="flex items-center justify-between">
-                        <span className="text-xs font-bold text-[#737686] uppercase">Faturamento</span>
+                        <span className="text-xs font-bold text-[#4a4c58] uppercase">Faturamento</span>
                         <span className="text-[10px] font-bold text-[#00714d] bg-[#6cf8bb]/35 px-1.5 py-0.5 rounded-sm flex items-center gap-0.5">
                           <TrendingUp className="w-2.5 h-2.5" /> +12%
                         </span>
@@ -3381,7 +3475,7 @@ export default function Home() {
                         R$ {metrics.faturamentoTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </p>
                     </div>
-                    <p className="text-[10px] text-[#737686] mt-4 font-bold uppercase tracking-wider">
+                    <p className="text-[10px] text-[#5e6170] mt-4 font-bold uppercase tracking-wider">
                       Soma Valor Carga R$
                     </p>
                   </div>
@@ -3389,13 +3483,38 @@ export default function Home() {
                   {/* KPI 2: Total de Viagens */}
                   <div className="bg-white border border-[#c3c6d7]/30 p-5 sm:p-6 rounded-2xl shadow-xs flex flex-col justify-between">
                     <div>
-                      <span className="text-xs font-bold text-[#737686] uppercase">Total Viagens</span>
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-[#4a4c58] uppercase">Total Viagens</span>
+                        {tripsComparisonMoM && (
+                          <span 
+                            className={`text-[10px] font-black px-2 py-0.5 rounded-full flex items-center gap-1 shrink-0 ${
+                              tripsComparisonMoM.percent >= 0
+                                ? 'text-[#00714d] bg-[#6cf8bb]/35'
+                                : 'text-rose-700 bg-rose-100'
+                            }`}
+                            title={`Em relação a ${tripsComparisonMoM.prevMonthName || 'mês anterior'}`}
+                          >
+                            {tripsComparisonMoM.percent >= 0 ? (
+                              <TrendingUp className="w-3 h-3 text-[#00714d]" />
+                            ) : (
+                              <TrendingDown className="w-3 h-3 text-rose-700" />
+                            )}
+                            {tripsComparisonMoM.percent >= 0 ? '+' : ''}
+                            {tripsComparisonMoM.percent.toFixed(1)}%
+                          </span>
+                        )}
+                      </div>
                       <p className="text-3xl sm:text-4xl font-black text-[#0b1c30] tracking-tight mt-3">
                         {metrics.totalViagens.toLocaleString('pt-BR')}
                       </p>
                     </div>
-                    <p className="text-[10px] text-[#737686] mt-4 font-bold uppercase tracking-wider">
-                      Realizadas no período
+                    <p className="text-[10px] text-[#5e6170] mt-4 font-bold uppercase tracking-wider flex items-center justify-between gap-1 flex-wrap">
+                      <span>Realizadas no período</span>
+                      {tripsComparisonMoM && tripsComparisonMoM.prevMonthName && (
+                        <span className="text-[9px] text-[#004ac6] bg-blue-50 border border-blue-100 px-1.5 py-0.2 rounded font-black uppercase">
+                          vs {tripsComparisonMoM.prevMonthName}
+                        </span>
+                      )}
                     </p>
                   </div>
 
@@ -3403,7 +3522,7 @@ export default function Home() {
                   <div className="bg-white border border-[#c3c6d7]/30 p-5 sm:p-6 rounded-2xl shadow-xs flex flex-col justify-between">
                     <div>
                       <div className="flex items-center justify-between">
-                        <span className="text-xs font-bold text-[#737686] uppercase">KM Total Rodado</span>
+                        <span className="text-xs font-bold text-[#4a4c58] uppercase">KM Total Rodado</span>
                         <span className="text-[10px] font-bold text-[#004ac6] bg-[#eff4ff] px-1.5 py-0.5 rounded-sm flex items-center gap-0.5">
                           <Route className="w-2.5 h-2.5" /> Km
                         </span>
@@ -3412,7 +3531,7 @@ export default function Home() {
                         {metrics.kmRodadoTotal.toLocaleString('pt-BR')}
                       </p>
                     </div>
-                    <p className="text-[10px] text-[#737686] mt-4 font-bold uppercase tracking-wider">
+                    <p className="text-[10px] text-[#5e6170] mt-4 font-bold uppercase tracking-wider">
                       Total de Km rodado
                     </p>
                   </div>
@@ -3420,12 +3539,12 @@ export default function Home() {
                   {/* KPI 3: Meta Global */}
                   <div className="bg-white border border-[#c3c6d7]/30 p-5 sm:p-6 rounded-2xl shadow-xs flex flex-col justify-between">
                     <div>
-                      <span className="text-xs font-bold text-[#737686] uppercase">Meta Global</span>
+                      <span className="text-xs font-bold text-[#4a4c58] uppercase">Meta Global</span>
                       <p className="text-3xl sm:text-4xl font-black text-[#0b1c30] tracking-tight mt-3">
                         {metrics.metaGlobal.toLocaleString('pt-BR')}
                       </p>
                     </div>
-                    <p className="text-[10px] text-[#737686] mt-4 font-bold uppercase tracking-wider">
+                    <p className="text-[10px] text-[#5e6170] mt-4 font-bold uppercase tracking-wider">
                       Viagens desejadas
                     </p>
                   </div>
@@ -3433,7 +3552,7 @@ export default function Home() {
                   {/* KPI 4: % Meta Atingida */}
                   <div className="bg-white border border-[#c3c6d7]/30 p-5 sm:p-6 rounded-2xl shadow-xs flex flex-col justify-between">
                     <div>
-                      <span className="text-xs font-bold text-[#737686] uppercase">% Atingido</span>
+                      <span className="text-xs font-bold text-[#4a4c58] uppercase">% Atingido</span>
                       <p className="text-3xl sm:text-4xl font-black text-[#004ac6] tracking-tight mt-3">
                         {metrics.percentMetaAtingida}%
                       </p>
@@ -3441,7 +3560,7 @@ export default function Home() {
                         <div className="h-full bg-[#004ac6]" style={{ width: `${Math.min(100, metrics.percentMetaAtingida)}%` }} />
                       </div>
                     </div>
-                    <p className="text-[10px] text-[#737686] mt-4 font-bold uppercase tracking-wider">
+                    <p className="text-[10px] text-[#5e6170] mt-4 font-bold uppercase tracking-wider">
                       Capacidade total
                     </p>
                   </div>
@@ -3449,12 +3568,12 @@ export default function Home() {
                   {/* KPI 5: Total Placas */}
                   <div className="bg-white border border-[#c3c6d7]/30 p-5 sm:p-6 rounded-2xl shadow-xs flex flex-col justify-between">
                     <div>
-                      <span className="text-xs font-bold text-[#737686] uppercase">Total Placas</span>
+                      <span className="text-xs font-bold text-[#4a4c58] uppercase">Total Placas</span>
                       <p className="text-3xl sm:text-4xl font-black text-[#0b1c30] tracking-tight mt-3">
                         {metrics.totalPlacas}
                       </p>
                     </div>
-                    <p className="text-[10px] text-[#737686] mt-4 font-bold uppercase tracking-wider">
+                    <p className="text-[10px] text-[#5e6170] mt-4 font-bold uppercase tracking-wider">
                       Veículos únicos em rota
                     </p>
                   </div>
@@ -3468,12 +3587,12 @@ export default function Home() {
                         </span>
                         <p className="text-3xl sm:text-4xl font-black text-[#ab0b1c] tracking-tight mt-3">
                           {platesSemFaturamento.length}
-                          <span className="text-sm font-semibold text-slate-500 ml-1.5">
+                          <span className="text-sm font-semibold text-[#5e6170] ml-1.5">
                             ({pctSemFaturamento}%)
                           </span>
                         </p>
                       </div>
-                      <p className="text-[10px] text-[#737686] mt-4 font-bold uppercase tracking-wider flex items-center justify-between">
+                      <p className="text-[10px] text-[#5e6170] mt-4 font-bold uppercase tracking-wider flex items-center justify-between">
                         <span>Frota ativa sem receita</span>
                         <span className="text-[8px] bg-red-55 text-red-600 px-1 py-0.2 rounded font-black border border-red-200">HOVER INFO</span>
                       </p>
@@ -3483,17 +3602,17 @@ export default function Home() {
                   {/* KPI: Receita Potencial Não Faturada */}
                   <div className="bg-white border border-[#c3c6d7]/30 p-5 sm:p-6 rounded-2xl shadow-xs flex flex-col justify-between border-l-4 border-l-amber-500 hover:border-amber-500 transition-colors h-full select-none">
                     <div>
-                      <span className="text-xs font-bold text-amber-600 uppercase flex items-center gap-1">
+                      <span className="text-xs font-bold text-amber-700 uppercase flex items-center gap-1">
                         <TrendingDown className="w-3.5 h-3.5 shrink-0" /> Receita Potencial
                       </span>
                       <p className="text-2xl sm:text-3xl font-black text-[#0b1c30] tracking-tight mt-3">
                         R$ {potentialRevenueTotalStats.totalReceitaPotencial.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </p>
-                      <p className="text-[11px] text-slate-500 mt-2 font-medium">
+                      <p className="text-[11px] text-slate-600 mt-2 font-semibold">
                         {potentialRevenueTotalStats.totalPlacasSemFaturamento} {potentialRevenueTotalStats.totalPlacasSemFaturamento === 1 ? 'placa' : 'placas'} sem receita
                       </p>
                     </div>
-                    <p className="text-[10px] text-[#737686] mt-4 font-bold uppercase tracking-wider">
+                    <p className="text-[10px] text-[#5e6170] mt-4 font-bold uppercase tracking-wider">
                       Baseado na média de faturamento das placas ativas
                     </p>
                   </div>
@@ -3508,7 +3627,7 @@ export default function Home() {
                         {metrics.dentroMetaCount}
                       </p>
                     </div>
-                    <p className="text-[10px] text-[#737686] mt-4 font-bold uppercase tracking-wider">
+                    <p className="text-[10px] text-[#5e6170] mt-4 font-bold uppercase tracking-wider">
                       ≥ 4 viagens por veículo/mês
                     </p>
                   </div>
@@ -3523,7 +3642,7 @@ export default function Home() {
                         {metrics.foraMetaCount}
                       </p>
                     </div>
-                    <p className="text-[10px] text-[#737686] mt-4 font-bold uppercase tracking-wider">
+                    <p className="text-[10px] text-[#5e6170] mt-4 font-bold uppercase tracking-wider">
                       &lt; 4 viagens por veículo/mês
                     </p>
                   </div>
@@ -4124,14 +4243,34 @@ export default function Home() {
                   {/* SEVEN PILL KPI GRID */}
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
                     {/* KPI 1: QUANTIDADE DE VIAGENS GERAL */}
-                    <div className="bg-white border border-[#c3c6d7]/30 rounded-2xl p-4.5 xl:p-5 flex items-center gap-3.5 shadow-xs transition-all duration-300 ease-in-out hover:scale-[1.03] hover:-translate-y-1 hover:shadow-lg hover:border-[#004ac6]/40 cursor-pointer">
-                      <div className="w-12 h-12 rounded-full bg-blue-50 flex items-center justify-center shrink-0 border border-blue-100">
-                        <Truck className="w-6 h-6 text-[#004ac6]" />
+                    <div className="bg-white border border-[#c3c6d7]/30 rounded-2xl p-4.5 xl:p-5 flex items-center justify-between gap-3.5 shadow-xs transition-all duration-300 ease-in-out hover:scale-[1.03] hover:-translate-y-1 hover:shadow-lg hover:border-[#004ac6]/40 cursor-pointer">
+                      <div className="flex items-center gap-3.5">
+                        <div className="w-12 h-12 rounded-full bg-blue-50 flex items-center justify-center shrink-0 border border-blue-100">
+                          <Truck className="w-6 h-6 text-[#004ac6]" />
+                        </div>
+                        <div>
+                          <p className="text-[10px] text-slate-700 font-extrabold uppercase tracking-wider leading-none">QTD VIAGENS GERAL</p>
+                          <p className="text-3xl font-black text-[#0b1c30] mt-2.5 leading-none">{metrics.totalViagens.toLocaleString('pt-BR')}</p>
+                        </div>
                       </div>
-                      <div>
-                        <p className="text-[10px] text-[#737686] font-bold uppercase tracking-wider leading-none">QTD VIAGENS GERAL</p>
-                        <p className="text-3xl font-black text-[#0b1c30] mt-2.5 leading-none">{metrics.totalViagens.toLocaleString('pt-BR')}</p>
-                      </div>
+                      {tripsComparisonMoM && (
+                        <span 
+                          className={`text-[10px] font-black px-2 py-0.5 rounded-full flex items-center gap-1 shrink-0 ${
+                            tripsComparisonMoM.percent >= 0
+                              ? 'text-[#00714d] bg-[#6cf8bb]/35'
+                              : 'text-rose-700 bg-rose-100'
+                          }`}
+                          title={`Em relação a ${tripsComparisonMoM.prevMonthName || 'mês anterior'}`}
+                        >
+                          {tripsComparisonMoM.percent >= 0 ? (
+                            <TrendingUp className="w-3 h-3 text-[#00714d]" />
+                          ) : (
+                            <TrendingDown className="w-3 h-3 text-rose-700" />
+                          )}
+                          {tripsComparisonMoM.percent >= 0 ? '+' : ''}
+                          {tripsComparisonMoM.percent.toFixed(1)}%
+                        </span>
+                      )}
                     </div>
 
                     {/* KPI 2: DENTRO DA META */}
@@ -4140,9 +4279,9 @@ export default function Home() {
                         <CheckCircle2 className="w-6 h-6 text-[#10b981]" />
                       </div>
                       <div>
-                        <p className="text-[10px] text-[#737686] font-bold uppercase tracking-wider leading-none">DENTRO DA META</p>
+                        <p className="text-[10px] text-slate-700 font-extrabold uppercase tracking-wider leading-none">DENTRO DA META</p>
                         <p className="text-3xl font-black text-[#10b981] mt-2.5 leading-none">
-                          {dentroMetaCount} <span className="text-xs text-[#737686] font-bold block mt-1">({dentroMetaPercent}%)</span>
+                          {dentroMetaCount} <span className="text-xs text-slate-500 font-black block mt-1">({dentroMetaPercent}%)</span>
                         </p>
                       </div>
                     </div>
@@ -4153,9 +4292,9 @@ export default function Home() {
                         <AlertTriangle className="w-6 h-6 text-rose-500" />
                       </div>
                       <div>
-                        <p className="text-[10px] text-[#737686] font-bold uppercase tracking-wider leading-none">FORA DA META</p>
+                        <p className="text-[10px] text-slate-700 font-extrabold uppercase tracking-wider leading-none">FORA DA META</p>
                         <p className="text-3xl font-black text-rose-500 mt-2.5 leading-none">
-                          {foraMetaCount} <span className="text-xs text-[#737686] font-bold block mt-1">({foraMetaPercent}%)</span>
+                          {foraMetaCount} <span className="text-xs text-slate-500 font-black block mt-1">({foraMetaPercent}%)</span>
                         </p>
                       </div>
                     </div>
@@ -4166,9 +4305,9 @@ export default function Home() {
                         <TrendingUp className="w-6 h-6 text-amber-500" />
                       </div>
                       <div>
-                        <p className="text-[10px] text-[#737686] font-bold uppercase tracking-wider leading-none">MÉDIA DE VIAGENS</p>
+                        <p className="text-[10px] text-slate-700 font-extrabold uppercase tracking-wider leading-none">MÉDIA DE VIAGENS</p>
                         <p className="text-3xl font-black text-[#0b1c30] mt-2.5 leading-none">
-                          {mediaViagens} <span className="text-[10px] text-[#737686] font-semibold block mt-1 whitespace-nowrap">/ placa</span>
+                          {mediaViagens} <span className="text-[10px] text-slate-600 font-bold block mt-1 whitespace-nowrap">/ placa</span>
                         </p>
                       </div>
                     </div>
@@ -4179,11 +4318,11 @@ export default function Home() {
                         <Route className="w-6 h-6 text-indigo-600" />
                       </div>
                       <div className="min-w-0 flex-1">
-                        <p className="text-[10px] text-[#737686] font-bold uppercase tracking-wider leading-none">KM TOTAL RODADO</p>
+                        <p className="text-[10px] text-slate-700 font-extrabold uppercase tracking-wider leading-none">KM TOTAL RODADO</p>
                         <p className="text-2xl font-black text-[#0b1c30] mt-2 leading-none">
                           {rankings.reduce((sum, r) => sum + (r.kmRodadoTotal || 0), 0).toLocaleString('pt-BR')}
                         </p>
-                        <p className="text-[11px] text-[#737686] font-extrabold mt-1.5 leading-none">Km rodados total</p>
+                        <p className="text-[11px] text-slate-600 font-extrabold mt-1.5 leading-none">Km rodados total</p>
                       </div>
                     </div>
 
@@ -4193,9 +4332,9 @@ export default function Home() {
                         <Award className="w-6 h-6 text-purple-600" />
                       </div>
                       <div className="min-w-0 flex-1">
-                        <p className="text-[10px] text-[#737686] font-bold uppercase tracking-wider leading-none">MELHOR PLACA</p>
+                        <p className="text-[10px] text-slate-700 font-extrabold uppercase tracking-wider leading-none">MELHOR PLACA</p>
                         <p className="text-2xl font-black text-purple-700 mt-2 leading-none" title={melhorPlaca}>{melhorPlaca}</p>
-                        <p className="text-[11px] text-[#737686] font-extrabold mt-1.5 leading-none">{melhorPlacaViagens} viagens</p>
+                        <p className="text-[11px] text-slate-600 font-extrabold mt-1.5 leading-none">{melhorPlacaViagens} viagens</p>
                       </div>
                     </div>
 
@@ -4205,11 +4344,11 @@ export default function Home() {
                         <Sparkles className="w-6 h-6 text-[#004ac6]" />
                       </div>
                       <div className="min-w-0 flex-1">
-                        <p className="text-[10px] text-[#737686] font-bold uppercase tracking-wider leading-none">MAIOR FATURAMENTO</p>
+                        <p className="text-[10px] text-slate-700 font-extrabold uppercase tracking-wider leading-none">MAIOR FATURAMENTO</p>
                         <p className="text-[#004ac6] text-xl font-black mt-2 leading-none" title={formatCargoCompactLocal(maiorFaturamentoValue)}>
                           {formatCargoCompactLocal(maiorFaturamentoValue)}
                         </p>
-                        <p className="text-[11px] text-[#737686] font-extrabold mt-1.5 leading-none">{maiorFaturamentoPlaca}</p>
+                        <p className="text-[11px] text-slate-600 font-extrabold mt-1.5 leading-none">{maiorFaturamentoPlaca}</p>
                       </div>
                     </div>
                   </div>
@@ -5596,15 +5735,20 @@ export default function Home() {
                         )}
 
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-4 border-t border-dashed border-slate-100">
-                          <div className="space-y-1.5 animate-fade-in">
-                            <label className="text-[10px] font-extrabold uppercase text-[#737686] tracking-wider block">Mês de Referência Base (Mês A)</label>
+                          <div className="space-y-1.5 animate-fade-in font-sans">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <label className="text-[10px] font-extrabold uppercase text-[#737686] tracking-wider block">Mês de Referência Base (Mês A)</label>
+                              <span className="text-[9px] font-black text-[#004ac6] bg-[#004ac6]/10 px-2 py-0.5 rounded-full uppercase truncate max-w-[200px]" title={activeFiliaisLabel}>
+                                {activeFiliaisLabel}
+                              </span>
+                            </div>
                             <select
                               value={comparisonBaseKey || ''}
                               onChange={(e) => {
                                 setComparisonBaseKey(e.target.value);
                                 triggerToast(`📅 Mês Base atualizado!`);
                               }}
-                              className="w-full bg-[#f8f9ff] text-xs font-bold text-[#0b1c30] px-4 py-3 rounded-xl border border-[#c3c6d7]/35 focus:outline-none focus:ring-1 focus:ring-[#004ac6] cursor-pointer"
+                              className="w-full bg-[#f8f9ff] text-xs font-bold text-[#0b1c30] px-4 py-3 rounded-xl border border-[#c3c6d7]/35 focus:outline-none focus:ring-1 focus:ring-[#004ac6] cursor-pointer font-sans"
                             >
                               {comparativoMensal.map((item) => (
                                 <option key={item.key} value={item.key}>
@@ -5614,15 +5758,20 @@ export default function Home() {
                             </select>
                           </div>
 
-                          <div className="space-y-1.5 animate-fade-in">
-                            <label className="text-[10px] font-extrabold uppercase text-[#737686] tracking-wider block">Mês de Referência Comparado (Mês B)</label>
+                          <div className="space-y-1.5 animate-fade-in font-sans">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <label className="text-[10px] font-extrabold uppercase text-[#737686] tracking-wider block">Mês de Referência Comparado (Mês B)</label>
+                              <span className="text-[9px] font-black text-[#004ac6] bg-[#004ac6]/10 px-2 py-0.5 rounded-full uppercase truncate max-w-[200px]" title={activeFiliaisLabel}>
+                                {activeFiliaisLabel}
+                              </span>
+                            </div>
                             <select
                               value={selectedComparisonKey || ''}
                               onChange={(e) => {
                                 setSelectedComparisonKey(e.target.value);
                                 triggerToast(`📅 Mês Comparado atualizado!`);
                               }}
-                              className="w-full bg-[#f8f9ff] text-xs font-bold text-[#0b1c30] px-4 py-3 rounded-xl border border-[#c3c6d7]/35 focus:outline-none focus:ring-1 focus:ring-[#004ac6] cursor-pointer"
+                              className="w-full bg-[#f8f9ff] text-xs font-bold text-[#0b1c30] px-4 py-3 rounded-xl border border-[#c3c6d7]/35 focus:outline-none focus:ring-1 focus:ring-[#004ac6] cursor-pointer font-sans"
                             >
                               {comparativoMensal.map((item) => (
                                 <option key={item.key} value={item.key}>
@@ -5640,10 +5789,10 @@ export default function Home() {
                         <div className="bg-white p-6 border border-[#c3c6d7]/35 rounded-2xl shadow-xs hover:shadow-md transition-all flex flex-col justify-between">
                           <div>
                             <div className="flex justify-between items-start">
-                              <span className="text-[10px] font-black text-[#737686] uppercase tracking-wider block">Faturamento Líquido</span>
-                              <div className={`px-2.5 py-1 rounded-full text-[10px] font-extrabold flex items-center gap-1 ${
-                                currentComp.faturamentoLiquido === (previousComp?.faturamentoLiquido || 0) ? 'bg-gray-100 text-gray-500' :
-                                compMetrics.varFaturamentoLiquido >= 0 ? 'bg-[#6cf8bb]/15 text-[#00714d]' : 'bg-rose-500/10 text-rose-600'
+                              <span className="text-[11px] font-bold text-slate-700 uppercase tracking-wider block">Faturamento Líquido</span>
+                              <div className={`px-2.5 py-1 rounded-md text-[10px] font-extrabold flex items-center gap-1 border ${
+                                currentComp.faturamentoLiquido === (previousComp?.faturamentoLiquido || 0) ? 'bg-gray-100 text-slate-600 border-gray-200' :
+                                compMetrics.varFaturamentoLiquido >= 0 ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-rose-50 text-rose-700 border-rose-100'
                               }`}>
                                 {previousComp ? formatPercent(compMetrics.varFaturamentoLiquido) : '------'}
                               </div>
@@ -5652,19 +5801,19 @@ export default function Home() {
                             {/* Comparison Side-By-Side */}
                             <div className="grid grid-cols-2 gap-4 mt-4 font-sans">
                               <div className="border-r border-slate-100 pr-2">
-                                <span className="text-[9px] text-[#737686] font-bold uppercase tracking-wider block">Base ({previousComp ? `${previousComp.mesNome}/${String(previousComp.ano).slice(-2)}` : 'N/A'})</span>
-                                <span className="text-sm font-bold text-slate-500 block mt-1">{previousComp ? formatMoney(previousComp.faturamentoLiquido) : '------'}</span>
+                                <span className="text-[9.5px] text-slate-500 font-extrabold uppercase tracking-wider block">Base ({previousComp ? `${previousComp.mesNome}/${String(previousComp.ano).slice(-2)}` : 'N/A'})</span>
+                                <span className="text-sm font-black text-slate-700 block mt-1">{previousComp ? formatMoney(previousComp.faturamentoLiquido) : '------'}</span>
                               </div>
                               <div className="pl-2">
-                                <span className="text-[9px] text-[#004ac6] font-bold uppercase tracking-wider block">Comparativo ({currentComp.mesNome}/{String(currentComp.ano).slice(-2)})</span>
+                                <span className="text-[9.5px] text-[#004ac6] font-extrabold uppercase tracking-wider block">Comparativo ({currentComp.mesNome}/{String(currentComp.ano).slice(-2)})</span>
                                 <span className="text-base font-black text-[#0b1c30] block mt-1">{formatMoney(currentComp.faturamentoLiquido)}</span>
                               </div>
                             </div>
                           </div>
 
-                          <div className="mt-4 pt-4 border-t border-slate-100 flex justify-between items-center text-[11px] font-bold text-[#434655]">
-                            <span className="opacity-75 font-semibold">Diferença Total:</span>
-                            <span className={previousComp === null ? 'text-gray-400' : (compMetrics.diffFaturamentoLiquido >= 0 ? 'text-[#00714d]' : 'text-rose-600')}>
+                          <div className="mt-4 pt-4 border-t border-slate-100 flex justify-between items-center text-[11px] font-extrabold text-slate-700">
+                            <span className="opacity-90 font-bold">Diferença Total:</span>
+                            <span className={previousComp === null ? 'text-gray-400' : (compMetrics.diffFaturamentoLiquido >= 0 ? 'text-[#00704d] font-black' : 'text-rose-700 font-black')}>
                               {previousComp ? formatDiffMoney(currentComp.faturamentoLiquido, previousComp.faturamentoLiquido) : '------'}
                             </span>
                           </div>
@@ -5674,10 +5823,10 @@ export default function Home() {
                         <div className="bg-white p-6 border border-[#c3c6d7]/35 rounded-2xl shadow-xs hover:shadow-md transition-all flex flex-col justify-between">
                           <div>
                             <div className="flex justify-between items-start">
-                              <span className="text-[10px] font-black text-[#737686] uppercase tracking-wider block">Faturamento Bruto</span>
-                              <div className={`px-2.5 py-1 rounded-full text-[10px] font-extrabold flex items-center gap-1 ${
-                                currentComp.faturamentoBruto === (previousComp?.faturamentoBruto || 0) ? 'bg-gray-100 text-gray-500' :
-                                compMetrics.varFaturamentoBruto >= 0 ? 'bg-[#6cf8bb]/15 text-[#00714d]' : 'bg-rose-500/10 text-rose-600'
+                              <span className="text-[11px] font-bold text-slate-700 uppercase tracking-wider block">Faturamento Bruto</span>
+                              <div className={`px-2.5 py-1 rounded-md text-[10px] font-extrabold flex items-center gap-1 border ${
+                                currentComp.faturamentoBruto === (previousComp?.faturamentoBruto || 0) ? 'bg-gray-100 text-slate-600 border-gray-200' :
+                                compMetrics.varFaturamentoBruto >= 0 ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-rose-50 text-rose-700 border-rose-100'
                               }`}>
                                 {previousComp ? formatPercent(compMetrics.varFaturamentoBruto) : '------'}
                               </div>
@@ -5685,19 +5834,19 @@ export default function Home() {
                             
                             <div className="grid grid-cols-2 gap-4 mt-4 font-sans">
                               <div className="border-r border-slate-100 pr-2">
-                                <span className="text-[9px] text-[#737686] font-bold uppercase tracking-wider block">Base ({previousComp ? `${previousComp.mesNome}/${String(previousComp.ano).slice(-2)}` : 'N/A'})</span>
-                                <span className="text-sm font-bold text-slate-500 block mt-1">{previousComp ? formatMoney(previousComp.faturamentoBruto) : '------'}</span>
+                                <span className="text-[9.5px] text-slate-500 font-extrabold uppercase tracking-wider block">Base ({previousComp ? `${previousComp.mesNome}/${String(previousComp.ano).slice(-2)}` : 'N/A'})</span>
+                                <span className="text-sm font-black text-slate-700 block mt-1">{previousComp ? formatMoney(previousComp.faturamentoBruto) : '------'}</span>
                               </div>
                               <div className="pl-2">
-                                <span className="text-[9px] text-[#004ac6] font-bold uppercase tracking-wider block">Comparativo ({currentComp.mesNome}/{String(currentComp.ano).slice(-2)})</span>
+                                <span className="text-[9.5px] text-[#004ac6] font-extrabold uppercase tracking-wider block">Comparativo ({currentComp.mesNome}/{String(currentComp.ano).slice(-2)})</span>
                                 <span className="text-base font-black text-[#0b1c30] block mt-1">{formatMoney(currentComp.faturamentoBruto)}</span>
                               </div>
                             </div>
                           </div>
 
-                          <div className="mt-4 pt-4 border-t border-slate-100 flex justify-between items-center text-[11px] font-bold text-[#434655]">
-                            <span className="opacity-75 font-semibold">Diferença Total:</span>
-                            <span className={previousComp === null ? 'text-gray-400' : (compMetrics.diffFaturamentoBruto >= 0 ? 'text-[#00714d]' : 'text-rose-600')}>
+                          <div className="mt-4 pt-4 border-t border-slate-100 flex justify-between items-center text-[11px] font-extrabold text-slate-700">
+                            <span className="opacity-90 font-bold">Diferença Total:</span>
+                            <span className={previousComp === null ? 'text-gray-400' : (compMetrics.diffFaturamentoBruto >= 0 ? 'text-[#00704d] font-black' : 'text-rose-700 font-black')}>
                               {previousComp ? formatDiffMoney(currentComp.faturamentoBruto, previousComp.faturamentoBruto) : '------'}
                             </span>
                           </div>
@@ -5707,10 +5856,10 @@ export default function Home() {
                         <div className="bg-white p-6 border border-[#c3c6d7]/35 rounded-2xl shadow-xs hover:shadow-md transition-all flex flex-col justify-between">
                           <div>
                             <div className="flex justify-between items-start">
-                              <span className="text-[10px] font-black text-[#737686] uppercase tracking-wider block">Despesas Oficina</span>
-                              <div className={`px-2.5 py-1 rounded-full text-[10px] font-extrabold flex items-center gap-1 ${
-                                currentComp.despesaOficina === (previousComp?.despesaOficina || 0) ? 'bg-gray-100 text-gray-500' :
-                                compMetrics.varDespesaOficina <= 0 ? 'bg-[#6cf8bb]/15 text-[#00714d]' : 'bg-rose-500/10 text-rose-600'
+                              <span className="text-[11px] font-bold text-slate-700 uppercase tracking-wider block">Despesas Oficina</span>
+                              <div className={`px-2.5 py-1 rounded-md text-[10px] font-extrabold flex items-center gap-1 border ${
+                                currentComp.despesaOficina === (previousComp?.despesaOficina || 0) ? 'bg-gray-100 text-slate-600 border-gray-200' :
+                                compMetrics.varDespesaOficina <= 0 ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-rose-50 text-rose-700 border-rose-100'
                               }`}>
                                 {previousComp ? formatPercent(compMetrics.varDespesaOficina) : '------'}
                               </div>
@@ -5718,19 +5867,19 @@ export default function Home() {
                             
                             <div className="grid grid-cols-2 gap-4 mt-4 font-sans">
                               <div className="border-r border-slate-100 pr-2">
-                                <span className="text-[9px] text-[#737686] font-bold uppercase tracking-wider block">Base ({previousComp ? `${previousComp.mesNome}/${String(previousComp.ano).slice(-2)}` : 'N/A'})</span>
-                                <span className="text-sm font-bold text-slate-500 block mt-1">{previousComp ? formatMoney(previousComp.despesaOficina) : '------'}</span>
+                                <span className="text-[9.5px] text-slate-500 font-extrabold uppercase tracking-wider block">Base ({previousComp ? `${previousComp.mesNome}/${String(previousComp.ano).slice(-2)}` : 'N/A'})</span>
+                                <span className="text-sm font-black text-slate-700 block mt-1">{previousComp ? formatMoney(previousComp.despesaOficina) : '------'}</span>
                               </div>
                               <div className="pl-2">
-                                <span className="text-[9px] text-[#ab0b1c] font-bold uppercase tracking-wider block">Comparativo ({currentComp.mesNome}/{String(currentComp.ano).slice(-2)})</span>
+                                <span className="text-[9.5px] text-[#ab0b1c] font-extrabold uppercase tracking-wider block">Comparativo ({currentComp.mesNome}/{String(currentComp.ano).slice(-2)})</span>
                                 <span className="text-base font-black text-[#0b1c30] block mt-1">{formatMoney(currentComp.despesaOficina)}</span>
                               </div>
                             </div>
                           </div>
 
-                          <div className="mt-4 pt-4 border-t border-slate-100 flex justify-between items-center text-[11px] font-bold text-[#434655]">
-                            <span className="opacity-75 font-semibold">Diferença Total:</span>
-                            <span className={previousComp === null ? 'text-gray-400' : (compMetrics.diffDespesaOficina <= 0 ? 'text-[#00714d]' : 'text-rose-600')}>
+                          <div className="mt-4 pt-4 border-t border-slate-100 flex justify-between items-center text-[11px] font-extrabold text-slate-700">
+                            <span className="opacity-90 font-bold">Diferença Total:</span>
+                            <span className={previousComp === null ? 'text-gray-400' : (compMetrics.diffDespesaOficina <= 0 ? 'text-[#00704d] font-black' : 'text-rose-700 font-black')}>
                               {previousComp ? formatDiffMoney(currentComp.despesaOficina, previousComp.despesaOficina) : '------'}
                             </span>
                           </div>
@@ -5740,10 +5889,10 @@ export default function Home() {
                         <div className="bg-white p-6 border border-[#c3c6d7]/35 rounded-2xl shadow-xs hover:shadow-md transition-all flex flex-col justify-between font-sans">
                           <div>
                             <div className="flex justify-between items-start">
-                              <span className="text-[10px] font-black text-[#737686] uppercase tracking-wider block">Viagens Realizadas</span>
-                              <div className={`px-2.5 py-1 rounded-full text-[10px] font-extrabold flex items-center gap-1 ${
-                                currentComp.qtdViagens === (previousComp?.qtdViagens || 0) ? 'bg-gray-100 text-gray-500' :
-                                compMetrics.varQtdViagens >= 0 ? 'bg-[#6cf8bb]/15 text-[#00714d]' : 'bg-rose-500/10 text-rose-600'
+                              <span className="text-[11px] font-bold text-slate-700 uppercase tracking-wider block">Viagens Realizadas</span>
+                              <div className={`px-2.5 py-1 rounded-md text-[10px] font-extrabold flex items-center gap-1 border ${
+                                currentComp.qtdViagens === (previousComp?.qtdViagens || 0) ? 'bg-gray-100 text-slate-600 border-gray-200' :
+                                compMetrics.varQtdViagens >= 0 ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-rose-50 text-rose-700 border-rose-100'
                               }`}>
                                 {previousComp ? formatPercent(compMetrics.varQtdViagens) : '------'}
                               </div>
@@ -5751,32 +5900,32 @@ export default function Home() {
                             
                             <div className="grid grid-cols-2 gap-4 mt-4 font-sans">
                               <div className="border-r border-slate-100 pr-2">
-                                <span className="text-[9px] text-[#737686] font-bold uppercase tracking-wider block">Base ({previousComp ? `${previousComp.mesNome}/${String(previousComp.ano).slice(-2)}` : 'N/A'})</span>
-                                <span className="text-sm font-bold text-slate-500 block mt-1">{previousComp ? `${previousComp.qtdViagens} viag.` : '------'}</span>
+                                <span className="text-[9.5px] text-slate-500 font-extrabold uppercase tracking-wider block">Base ({previousComp ? `${previousComp.mesNome}/${String(previousComp.ano).slice(-2)}` : 'N/A'})</span>
+                                <span className="text-sm font-black text-slate-700 block mt-1">{previousComp ? `${previousComp.qtdViagens} viag.` : '------'}</span>
                               </div>
                               <div className="pl-2">
-                                <span className="text-[9px] text-[#004ac6] font-bold uppercase tracking-wider block">Comparativo ({currentComp.mesNome}/{String(currentComp.ano).slice(-2)})</span>
+                                <span className="text-[9.5px] text-[#004ac6] font-extrabold uppercase tracking-wider block">Comparativo ({currentComp.mesNome}/{String(currentComp.ano).slice(-2)})</span>
                                 <span className="text-base font-black text-[#0b1c30] block mt-1">{currentComp.qtdViagens} viagens</span>
                               </div>
                             </div>
                           </div>
 
-                          <div className="mt-4 pt-4 border-t border-slate-100 flex justify-between items-center text-[11px] font-bold text-[#434655]">
-                            <span className="opacity-75 font-semibold">Diferença Total:</span>
-                            <span className={previousComp === null ? 'text-gray-400' : (compMetrics.diffQtdViagens >= 0 ? 'text-[#00714d]' : 'text-rose-600')}>
+                          <div className="mt-4 pt-4 border-t border-slate-100 flex justify-between items-center text-[11px] font-extrabold text-slate-700">
+                            <span className="opacity-90 font-bold">Diferença Total:</span>
+                            <span className={previousComp === null ? 'text-gray-400' : (compMetrics.diffQtdViagens >= 0 ? 'text-[#00704d] font-black' : 'text-rose-700 font-black')}>
                               {previousComp ? formatDiffNum(currentComp.qtdViagens, previousComp.qtdViagens) + ' viagens' : '------'}
                             </span>
                           </div>
                         </div>
 
                         {/* KPI 5: Veículos Ativos */}
-                        <div className="bg-white p-6 border border-[#c3c6d7]/35 rounded-2xl shadow-xs hover:shadow-md transition-all flex flex-col justify-between font-sans font-sans">
+                        <div className="bg-white p-6 border border-[#c3c6d7]/35 rounded-2xl shadow-xs hover:shadow-md transition-all flex flex-col justify-between font-sans">
                           <div>
                             <div className="flex justify-between items-start">
-                              <span className="text-[10px] font-black text-[#737686] uppercase tracking-wider block">Veículos Ativos</span>
-                              <div className={`px-2.5 py-1 rounded-full text-[10px] font-extrabold flex items-center gap-1 ${
-                                currentComp.qtdVeiculos === (previousComp?.qtdVeiculos || 0) ? 'bg-gray-100 text-gray-500' :
-                                compMetrics.varQtdVeiculos >= 0 ? 'bg-[#6cf8bb]/15 text-[#00714d]' : 'bg-rose-500/10 text-rose-600'
+                              <span className="text-[11px] font-bold text-slate-700 uppercase tracking-wider block">Veículos Ativos</span>
+                              <div className={`px-2.5 py-1 rounded-md text-[10px] font-extrabold flex items-center gap-1 border ${
+                                currentComp.qtdVeiculos === (previousComp?.qtdVeiculos || 0) ? 'bg-gray-100 text-slate-600 border-gray-200' :
+                                compMetrics.varQtdVeiculos >= 0 ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-rose-50 text-rose-700 border-rose-100'
                               }`}>
                                 {previousComp ? formatPercent(compMetrics.varQtdVeiculos) : '------'}
                               </div>
@@ -5784,19 +5933,19 @@ export default function Home() {
                             
                             <div className="grid grid-cols-2 gap-4 mt-4 font-sans">
                               <div className="border-r border-slate-100 pr-2">
-                                <span className="text-[9px] text-[#737686] font-bold uppercase tracking-wider block">Base ({previousComp ? `${previousComp.mesNome}/${String(previousComp.ano).slice(-2)}` : 'N/A'})</span>
-                                <span className="text-sm font-bold text-slate-500 block mt-1">{previousComp ? `${previousComp.qtdVeiculos} veíc.` : '------'}</span>
+                                <span className="text-[9.5px] text-slate-500 font-extrabold uppercase tracking-wider block">Base ({previousComp ? `${previousComp.mesNome}/${String(previousComp.ano).slice(-2)}` : 'N/A'})</span>
+                                <span className="text-sm font-black text-slate-700 block mt-1">{previousComp ? `${previousComp.qtdVeiculos} veíc.` : '------'}</span>
                               </div>
                               <div className="pl-2">
-                                <span className="text-[9px] text-[#004ac6] font-bold uppercase tracking-wider block">Comparativo ({currentComp.mesNome}/{String(currentComp.ano).slice(-2)})</span>
+                                <span className="text-[9.5px] text-[#004ac6] font-extrabold uppercase tracking-wider block">Comparativo ({currentComp.mesNome}/{String(currentComp.ano).slice(-2)})</span>
                                 <span className="text-base font-black text-[#0b1c30] block mt-1">{currentComp.qtdVeiculos} veículos</span>
                               </div>
                             </div>
                           </div>
 
-                          <div className="mt-4 pt-4 border-t border-slate-100 flex justify-between items-center text-[11px] font-bold text-[#434655]">
-                            <span className="opacity-75 font-semibold">Diferença Total:</span>
-                            <span className={previousComp === null ? 'text-gray-400' : (compMetrics.diffQtdVeiculos >= 0 ? 'text-[#00714d]' : 'text-rose-600')}>
+                          <div className="mt-4 pt-4 border-t border-slate-100 flex justify-between items-center text-[11px] font-extrabold text-slate-700">
+                            <span className="opacity-90 font-bold">Diferença Total:</span>
+                            <span className={previousComp === null ? 'text-gray-400' : (compMetrics.diffQtdVeiculos >= 0 ? 'text-[#00704d] font-black' : 'text-rose-700 font-black')}>
                               {previousComp ? formatDiffNum(currentComp.qtdVeiculos, previousComp.qtdVeiculos) + ' veículos' : '------'}
                             </span>
                           </div>
@@ -5806,10 +5955,10 @@ export default function Home() {
                         <div className="bg-white p-6 border border-[#c3c6d7]/35 rounded-2xl shadow-xs hover:shadow-md transition-all flex flex-col justify-between font-sans">
                           <div>
                             <div className="flex justify-between items-start">
-                              <span className="text-[10px] font-black text-[#737686] uppercase tracking-wider block">Distância Total</span>
-                              <div className={`px-2.5 py-1 rounded-full text-[10px] font-extrabold flex items-center gap-1 ${
-                                currentComp.kmRodado === (previousComp?.kmRodado || 0) ? 'bg-gray-100 text-gray-500' :
-                                compMetrics.varKmRodado >= 0 ? 'bg-[#6cf8bb]/15 text-[#00714d]' : 'bg-rose-500/10 text-rose-600'
+                              <span className="text-[11px] font-bold text-slate-700 uppercase tracking-wider block">Distância Total</span>
+                              <div className={`px-2.5 py-1 rounded-md text-[10px] font-extrabold flex items-center gap-1 border ${
+                                currentComp.kmRodado === (previousComp?.kmRodado || 0) ? 'bg-gray-100 text-slate-600 border-gray-200' :
+                                compMetrics.varKmRodado >= 0 ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-rose-50 text-rose-700 border-rose-100'
                               }`}>
                                 {previousComp ? formatPercent(compMetrics.varKmRodado) : '------'}
                               </div>
@@ -5817,19 +5966,19 @@ export default function Home() {
                             
                             <div className="grid grid-cols-2 gap-4 mt-4 font-sans">
                               <div className="border-r border-slate-100 pr-2">
-                                <span className="text-[9px] text-[#737686] font-bold uppercase tracking-wider block">Base ({previousComp ? `${previousComp.mesNome}/${String(previousComp.ano).slice(-2)}` : 'N/A'})</span>
-                                <span className="text-sm font-bold text-slate-500 block mt-1">{previousComp ? `${previousComp.kmRodado.toLocaleString('pt-BR')} Km` : '------'}</span>
+                                <span className="text-[9.5px] text-slate-500 font-extrabold uppercase tracking-wider block">Base ({previousComp ? `${previousComp.mesNome}/${String(previousComp.ano).slice(-2)}` : 'N/A'})</span>
+                                <span className="text-sm font-black text-slate-700 block mt-1">{previousComp ? `${previousComp.kmRodado.toLocaleString('pt-BR')} Km` : '------'}</span>
                               </div>
                               <div className="pl-2">
-                                <span className="text-[9px] text-[#004ac6] font-bold uppercase tracking-wider block">Comparativo ({currentComp.mesNome}/{String(currentComp.ano).slice(-2)})</span>
+                                <span className="text-[9.5px] text-[#004ac6] font-extrabold uppercase tracking-wider block">Comparativo ({currentComp.mesNome}/{String(currentComp.ano).slice(-2)})</span>
                                 <span className="text-base font-black text-[#0b1c30] block mt-1">{currentComp.kmRodado.toLocaleString('pt-BR')} Km</span>
                               </div>
                             </div>
                           </div>
 
-                          <div className="mt-4 pt-4 border-t border-slate-100 flex justify-between items-center text-[11px] font-bold text-[#434655]">
-                            <span className="opacity-75 font-semibold">Diferença Total:</span>
-                            <span className={previousComp === null ? 'text-gray-400' : (compMetrics.diffKmRodado >= 0 ? 'text-[#00714d]' : 'text-rose-600')}>
+                          <div className="mt-4 pt-4 border-t border-slate-100 flex justify-between items-center text-[11px] font-extrabold text-slate-700">
+                            <span className="opacity-90 font-bold">Diferença Total:</span>
+                            <span className={previousComp === null ? 'text-gray-400' : (compMetrics.diffKmRodado >= 0 ? 'text-[#00704d] font-black' : 'text-rose-700 font-black')}>
                               {previousComp ? `${compMetrics.diffKmRodado >= 0 ? '+' : ''}${compMetrics.diffKmRodado.toLocaleString('pt-BR')} Km` : '------'}
                             </span>
                           </div>
@@ -5838,13 +5987,58 @@ export default function Home() {
 
                       {/* Visual SVG Monthly Trend representation */}
                       <div className="bg-white p-6 border border-[#c3c6d7]/30 rounded-2xl shadow-xs">
-                        <h4 className="text-xs font-extrabold text-[#4a4c58] uppercase tracking-wider mb-4 flex items-center gap-1.5 font-sans">
-                          📈 Evolução Mensal do Faturamento Líquido (R$)
-                        </h4>
+                        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-5">
+                          <div>
+                            <h4 className="text-xs font-extrabold text-[#4a4c58] uppercase tracking-wider flex items-center gap-1.5 font-sans">
+                              {comparativoChartMetric === 'faturamento' ? '📈 Evolução Mensal do Faturamento Líquido (R$)' : '🚌 Evolução Mensal do Volume de Viagens'}
+                            </h4>
+                            <p className="text-[10px] text-gray-500 font-bold mt-1 uppercase tracking-wider">
+                              {comparativoChartMetric === 'faturamento' ? 'Variação liquida (Bruto - Oficina)' : 'Quantidade de viagens executadas'}
+                            </p>
+                          </div>
+                          
+                          <div className="flex bg-[#f8f9ff] border border-[#c3c6d7]/30 rounded-xl p-1 shrink-0">
+                            <button
+                              onClick={() => {
+                                setComparativoChartMetric('faturamento');
+                                triggerToast("📈 Visualizando Faturamento Líquido");
+                              }}
+                              className={`px-3 py-1.5 rounded-lg text-[10px] font-extrabold uppercase transition-all whitespace-nowrap cursor-pointer ${
+                                comparativoChartMetric === 'faturamento'
+                                  ? 'bg-[#004ac6] text-white shadow-3xs'
+                                  : 'text-slate-600 hover:text-[#0b1c30]'
+                              }`}
+                            >
+                              Faturamento Líquido
+                            </button>
+                            <button
+                              onClick={() => {
+                                setComparativoChartMetric('viagens');
+                                triggerToast("🚌 Visualizando Volume de Viagens");
+                              }}
+                              className={`px-3 py-1.5 rounded-lg text-[10px] font-extrabold uppercase transition-all whitespace-nowrap cursor-pointer ${
+                                comparativoChartMetric === 'viagens'
+                                  ? 'bg-[#004ac6] text-white shadow-3xs'
+                                  : 'text-slate-600 hover:text-[#0b1c30]'
+                              }`}
+                            >
+                              Viagens Realizadas
+                            </button>
+                          </div>
+                        </div>
+
                         <div className="w-full pt-2">
                           {(() => {
-                            const maxVal = Math.max(...comparativoMensal.map(c => Math.max(c.faturamentoLiquido, 1)));
-                            const minVal = Math.min(0, ...comparativoMensal.map(c => c.faturamentoLiquido));
+                            const isFaturamento = comparativoChartMetric === 'faturamento';
+
+                            const getValue = (c: typeof comparativoMensal[0]) => 
+                              isFaturamento ? c.faturamentoLiquido : c.qtdViagens;
+
+                            const getVarPercent = (c: typeof comparativoMensal[0]) => 
+                              isFaturamento ? c.varFaturamentoLiquido : c.varQtdViagens;
+
+                            const maxVal = Math.max(...comparativoMensal.map(c => Math.max(getValue(c), 1)));
+                            const minVal = Math.min(0, ...comparativoMensal.map(c => getValue(c)));
                             const range = maxVal - minVal;
 
                             const paddingLeft = 135;
@@ -5865,7 +6059,7 @@ export default function Home() {
 
                             const points = comparativoMensal.map((item, idx) => {
                               const x = paddingLeft + (comparativoMensal.length > 1 ? (idx / (comparativoMensal.length - 1)) * plotWidth : plotWidth / 2);
-                              const y = getY(item.faturamentoLiquido);
+                              const y = getY(getValue(item));
                               return { x, y, item, idx };
                             });
 
@@ -5899,8 +6093,8 @@ export default function Home() {
                                 >
                                   <defs>
                                     <linearGradient id="chartAreaGradient" x1="0" y1="0" x2="0" y2="1">
-                                      <stop offset="0%" stopColor="#004ac6" stopOpacity="0.25"/>
-                                      <stop offset="100%" stopColor="#004ac6" stopOpacity="0.00"/>
+                                      <stop offset="0%" stopColor={isFaturamento ? "#004ac6" : "#00714d"} stopOpacity="0.25"/>
+                                      <stop offset="100%" stopColor={isFaturamento ? "#004ac6" : "#00714d"} stopOpacity="0.00"/>
                                     </linearGradient>
                                   </defs>
 
@@ -5922,11 +6116,17 @@ export default function Home() {
                                         textAnchor="end"
                                         className="font-sans font-extrabold text-[11px] text-slate-500 fill-current"
                                       >
-                                        {line.value >= 1000000
-                                          ? `R$ ${(line.value / 1000000).toFixed(1)}M`
-                                          : line.value >= 1000
-                                            ? `R$ ${(line.value / 1000).toFixed(0)}k`
-                                            : `R$ ${line.value}`}
+                                        {isFaturamento ? (
+                                          line.value >= 1000000
+                                            ? `R$ ${(line.value / 1000000).toFixed(1)}M`
+                                            : line.value >= 1000
+                                              ? `R$ ${(line.value / 1000).toFixed(0)}k`
+                                              : `R$ ${line.value}`
+                                        ) : (
+                                          line.value >= 1000
+                                            ? `${(line.value / 1000).toFixed(1)}k viag.`
+                                            : `${line.value.toFixed(0)} viag.`
+                                        )}
                                       </text>
                                     </g>
                                   ))}
@@ -5955,7 +6155,7 @@ export default function Home() {
                                     <path
                                       d={pathD}
                                       fill="none"
-                                      stroke="#004ac6"
+                                      stroke={isFaturamento ? "#004ac6" : "#00714d"}
                                       strokeWidth={3.5}
                                       strokeLinecap="round"
                                       strokeLinejoin="round"
@@ -5983,7 +6183,7 @@ export default function Home() {
                                         y={yBottom + 22}
                                         textAnchor="middle"
                                         className={`font-sans text-[11px] font-black tracking-wider uppercase select-none transition-colors duration-150 ${
-                                          isSelected ? 'fill-[#004ac6] text-[#004ac6]' : 'fill-[#82869a] text-[#82869a]'
+                                          isSelected ? (isFaturamento ? 'fill-[#004ac6] text-[#004ac6]' : 'fill-[#00714d] text-[#00714d]') : 'fill-[#82869a] text-[#82869a]'
                                         }`}
                                       >
                                         {p.item.mesNome.substring(0, 3)}
@@ -5995,8 +6195,8 @@ export default function Home() {
                                   {points.map((p, idx) => {
                                     const isSelected = p.item.key === currentComp.key;
                                     const prevMonth = idx > 0 ? comparativoMensal[idx - 1] : null;
-                                    const diffVal = prevMonth ? p.item.faturamentoLiquido - prevMonth.faturamentoLiquido : 0;
-                                    const pctVal = prevMonth ? p.item.varFaturamentoLiquido : 0;
+                                    const diffVal = prevMonth ? getValue(p.item) - getValue(prevMonth) : 0;
+                                    const pctVal = prevMonth ? getVarPercent(p.item) : 0;
 
                                     return (
                                       <g
@@ -6027,7 +6227,7 @@ export default function Home() {
                                           y1={yTop - 10}
                                           x2={p.x}
                                           y2={yBottom}
-                                          stroke="#004ac6"
+                                          stroke={isFaturamento ? "#004ac6" : "#00714d"}
                                           strokeWidth={1.5}
                                           strokeDasharray="4 4"
                                           className="opacity-0 group-hover:opacity-45 transition-opacity duration-150 pointer-events-none"
@@ -6038,7 +6238,9 @@ export default function Home() {
                                           cx={p.x}
                                           cy={p.y}
                                           r={12}
-                                          className="fill-[#004ac6] opacity-0 group-hover:opacity-15 transition-opacity duration-150 pointer-events-none"
+                                          className={`opacity-0 group-hover:opacity-15 transition-opacity duration-150 pointer-events-none ${
+                                            isFaturamento ? 'fill-[#004ac6]' : 'fill-[#00714d]'
+                                          }`}
                                         />
 
                                         {/* Colored circle point */}
@@ -6048,8 +6250,8 @@ export default function Home() {
                                           r={isSelected ? 6.5 : 5}
                                           className={`transition-all duration-150 stroke-[3px] pointer-events-none ${
                                             isSelected
-                                              ? 'fill-white stroke-[#004ac6]'
-                                              : 'fill-[#c3c6d7] stroke-white group-hover:stroke-[#004ac6] group-hover:fill-white'
+                                              ? `fill-white ${isFaturamento ? 'stroke-[#004ac6]' : 'stroke-[#00714d]'}`
+                                              : `fill-[#c3c6d7] stroke-white group-hover:fill-white ${isFaturamento ? 'group-hover:stroke-[#004ac6]' : 'group-hover:stroke-[#00714d]'}`
                                           }`}
                                         />
 
@@ -6065,13 +6267,19 @@ export default function Home() {
                                             <div className="bg-[#0b1c30] text-white px-3.5 py-2.5 rounded-2xl shadow-xl border border-slate-700/60 flex flex-col gap-1 w-full text-[10px] leading-tight font-sans">
                                               <div className="font-extrabold text-[#6cf8bb] text-[10px] border-b border-slate-700/40 pb-1 mb-1 flex justify-between items-center">
                                                 <span>{p.item.mesNome.toUpperCase()} / {p.item.ano}</span>
-                                                <span className="text-[8px] text-slate-400 font-semibold uppercase font-mono">Ref. Líquido</span>
+                                                <span className="text-[8px] text-slate-400 font-semibold uppercase font-mono">
+                                                  {isFaturamento ? 'Ref. Líquido' : 'Ref. Viagens'}
+                                                </span>
                                               </div>
                                               
                                               {/* Valor */}
                                               <div className="flex items-center justify-between">
-                                                <span className="text-[#a0a5c0] font-semibold">Valor Líquido:</span>
-                                                <span className="text-white font-black text-xs leading-none">{formatMoney(p.item.faturamentoLiquido)}</span>
+                                                <span className="text-[#a0a5c0] font-semibold">
+                                                  {isFaturamento ? 'Valor Líquido:' : 'Total Viagens:'}
+                                                </span>
+                                                <span className="text-white font-black text-xs leading-none">
+                                                  {isFaturamento ? formatMoney(p.item.faturamentoLiquido) : `${p.item.qtdViagens} viag.`}
+                                                </span>
                                               </div>
 
                                               {prevMonth ? (
@@ -6080,7 +6288,9 @@ export default function Home() {
                                                   <div className="flex items-center justify-between border-t border-slate-800/40 pt-1 mt-0.5">
                                                     <span className="text-[#a0a5c0] font-semibold">Diferença MoM:</span>
                                                     <span className={`font-black tracking-tight ${diffVal >= 0 ? 'text-[#6cf8bb]' : 'text-rose-400'}`}>
-                                                      {formatDiffMoney(p.item.faturamentoLiquido, prevMonth.faturamentoLiquido)}
+                                                      {isFaturamento 
+                                                        ? formatDiffMoney(p.item.faturamentoLiquido, prevMonth.faturamentoLiquido) 
+                                                        : `${diffVal >= 0 ? '+' : ''}${diffVal.toLocaleString('pt-BR')} viag.`}
                                                     </span>
                                                   </div>
                                                   {/* Porcentagem */}
