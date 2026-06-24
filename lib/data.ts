@@ -728,7 +728,9 @@ export function computePlacaMetrics(
 
     const conId = (v.conhecimento || v.id || '').trim();
     if (conId && !isSemFaturamento(v)) {
-      g.conhecimentos.add(conId);
+      if (conId.toUpperCase() !== 'N/D' && !conId.toUpperCase().includes('N/D')) {
+        g.conhecimentos.add(conId);
+      }
     }
   });
 
@@ -796,32 +798,36 @@ export function computePlacaMetrics(
 
 // Compute driver metrics
 export function computeMotoristaMetrics(viagens: Viagem[]): MotoristaMetrics[] {
-  const driverGroup: Record<string, { faturamento: number; trips: number }> = {};
+  const driverGroup: Record<string, { faturamento: number; conhecimentos: Set<string> }> = {};
   
   viagens.forEach(v => {
-    const m = v.motorista.trim();
+    const m = v.motorista ? v.motorista.trim() : 'Sem Motorista';
     if (!driverGroup[m]) {
-      driverGroup[m] = { faturamento: 0, trips: 0 };
+      driverGroup[m] = { faturamento: 0, conhecimentos: new Set<string>() };
     }
-    driverGroup[m].faturamento += v.valorCarga;
+    driverGroup[m].faturamento += v.valorCarga || 0;
     if (!isSemFaturamento(v)) {
-      driverGroup[m].trips += 1;
+      const conId = (v.conhecimento || v.id || '').trim();
+      if (conId && conId.toUpperCase() !== 'N/D' && !conId.toUpperCase().includes('N/D')) {
+        driverGroup[m].conhecimentos.add(conId);
+      }
     }
   });
 
   return Object.keys(driverGroup).map((nome, index): MotoristaMetrics => {
     const data = driverGroup[nome];
+    const trips = data.conhecimentos.size;
     const target = 4; // goal
-    const progress = Math.round((data.trips / target) * 100);
+    const progress = Math.round((trips / target) * 100);
     return {
       id: `0${2934 + index}`,
       nome,
-      categoria: data.trips % 2 === 0 ? "Categoria D" : "Categoria E",
+      categoria: trips % 2 === 0 ? "Categoria D" : "Categoria E",
       faturamento: data.faturamento,
-      viagensRealizadas: data.trips,
+      viagensRealizadas: trips,
       metaViagens: target,
       percentProgresso: progress,
-      statusMeta: data.trips >= target ? 'METAS_ATINGIDAS' : 'FORA_DA_META'
+      statusMeta: trips >= target ? 'METAS_ATINGIDAS' : 'FORA_DA_META'
     };
   }).sort((a, b) => b.viagensRealizadas - a.viagensRealizadas || b.faturamento - a.faturamento);
 }

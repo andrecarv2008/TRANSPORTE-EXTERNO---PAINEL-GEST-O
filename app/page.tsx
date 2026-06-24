@@ -2102,7 +2102,7 @@ export default function Home() {
       despesaOficinaTotal: number;
       supervisores: Record<string, number>;
       motoristas: Record<string, number>;
-      viagensCount: number;
+      conhecimentos: Set<string>;
       ultimaRota: string;
       hasBilling: boolean;
     }> = {};
@@ -2119,7 +2119,7 @@ export default function Home() {
           despesaOficinaTotal: 0,
           supervisores: {},
           motoristas: {},
-          viagensCount: 0,
+          conhecimentos: new Set<string>(),
           ultimaRota: '',
           hasBilling: false
         };
@@ -2131,8 +2131,11 @@ export default function Home() {
       g.despesaOficinaTotal += v.despesaOficina || 0;
 
       if (!isSemFaturamento(v)) {
-        g.viagensCount += 1;
-        g.hasBilling = true;
+        const conId = (v.conhecimento || v.id || '').trim();
+        if (conId && conId.toUpperCase() !== 'N/D' && !conId.toUpperCase().includes('N/D')) {
+          g.conhecimentos.add(conId);
+          g.hasBilling = true;
+        }
       }
 
       const sup = v.supervisao || 'Sem Supervisor';
@@ -2147,8 +2150,9 @@ export default function Home() {
     });
 
     const list = Object.values(groups).map(g => {
+      const voyagesCount = g.conhecimentos.size;
       const targetMeta = activeMonthsCount * 4;
-      const percentMeta = targetMeta > 0 ? Math.min(1000, Math.round((g.viagensCount / targetMeta) * 100)) : 0;
+      const percentMeta = targetMeta > 0 ? Math.min(1000, Math.round((voyagesCount / targetMeta) * 100)) : 0;
 
       // Find principal supervisor
       let supervisor = 'Sem Supervisor';
@@ -2187,12 +2191,12 @@ export default function Home() {
 
       return {
         placa: g.placa,
-        viagensCount: g.viagensCount,
+        viagensCount: voyagesCount,
         faturamentoTotal: g.faturamento,
         kmRodadoTotal: g.kmTotal,
         despesaOficinaTotal: g.despesaOficinaTotal,
         percentMeta,
-        statusMeta: g.viagensCount >= targetMeta ? 'Dentro da Meta' : 'Fora da Meta',
+        statusMeta: voyagesCount >= targetMeta ? 'Dentro da Meta' : 'Fora da Meta',
         supervisor,
         motorista,
         ultimaRota: g.ultimaRota || 'Sem rota programada',

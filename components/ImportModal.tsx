@@ -77,7 +77,7 @@ export default function ImportModal({ isOpen, onClose, onImport }: ImportModalPr
       const placa = String(findValueByRegex(row, /placa/i, `OJD-${1000 + (idx % 9000)}`)).trim().toUpperCase().replace(/[^A-Z0-9-]/g, '');
       const motorista = String(findValueByRegex(row, /motorista|nome|num_condutor/i, 'ADRIANO RICARDO SANTOS')).trim().toUpperCase();
       const conhecimentoVal = String(findValueByRegex(row, /conhecimento|id|cod|viagem/i, `${8350000 + idx}`)).trim();
-      const id = `${conhecimentoVal}_${idx}`;
+      const id = `${conhecimentoVal.replace(/\//g, '-')}_${idx}`;
       let supervisao = String(findValueByRegex(row, /supervisor|supervisao|supervis[ãa]o/i, 'LEONAN')).trim().toUpperCase();
       if (supervisao === 'LEONAN BRAGA NONATO' || supervisao.includes('LEONAN')) {
         supervisao = 'LEONAN';
